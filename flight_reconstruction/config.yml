@@ -1,4 +1,11 @@
 # Configuration for Metashape automated reconstruction
+#
+# The top-level keys are the baseline (tuned on the DJI Mavic 3M RGB camera).
+# `sensor_profiles` holds per-sensor overrides that are deep-merged over the
+# baseline at load time. The profile is chosen by `sensor` (or --sensor):
+#   auto -> read Exif.Image.Model from the first photo (M3M -> m3m, ZenmuseP1 -> p1)
+
+sensor: auto
 
 # GPS/RTK configuration
 gps:
@@ -31,7 +38,9 @@ camera:
   align:
     adaptive_fitting: false
     min_image: 2
-  
+    # Re-run alignCameras on cameras left unaligned by the first pass
+    retry_unaligned: false
+
   # Camera optimization parameters
   optimize:
     fit_f: true
@@ -49,20 +58,42 @@ camera:
     tiepoint_covariance: true
     adaptive_fitting: false
 
+  # Load a saved sensor calibration (XML written by a previous run) before matching.
+  # fixed: true keeps it fixed during optimization; false uses it as the initial guess.
+  precalibrated:
+    enabled: false
+    path: null
+    fixed: false
+
 # Tie point filtering
 tie_point_filtering:
   # USGS-recommended filtering thresholds
   reconstruction_uncertainty:
     percentile: 20
     min_threshold: 15.0
-  
+
   projection_accuracy:
     percentile: 30
     min_threshold: 2.0
-  
+
   reprojection_error:
     percentile: 5
     min_threshold: 0.3
+
+# Reconstruction region (bounding box) after alignment
+region:
+  # legacy_x3: resetRegion() then triple the height (original behaviour)
+  # cameras:   XY from aligned camera positions + buffer, Z from ground estimate to camera height
+  mode: legacy_x3
+  xy_buffer_m: 15.0
+  z_below_m: 15.0
+  z_above_m: 10.0
+
+# Outer boundary shape used to clip DEM/orthomosaic/mesh exports
+boundary:
+  enabled: false
+  # Buffer (m) around the convex hull of aligned camera positions
+  buffer_m: 12.0
 
 # Depth maps parameters
 depth_maps:
@@ -75,13 +106,18 @@ depth_maps:
 
 # Point cloud parameters
 point_cloud:
-  source_data: "depth_maps" 
+  source_data: "depth_maps"
   point_colors: true
   point_confidence: true
   keep_depth: true
   max_neighbors: 64
   subdivide_task: false
-  
+
+  # Remove points whose confidence (number of contributing depth maps) is below min_confidence
+  confidence_filter:
+    enabled: false
+    min_confidence: 2
+
   # Export parameters
   export:
     save_point_color: true
@@ -97,6 +133,11 @@ classify_ground_points:
 
 # Mesh parameters
 model:
+  enabled: true
+  surface_type: "arbitrary"      # Options: "arbitrary", "height_field"
+  interpolation: "enabled"       # Options: "enabled", "extrapolated", "disabled"
+  face_count: "high"             # Options: "high", "medium", "low"
+  clip_to_boundary: false
   subdivide_task: false
   vertex_colors: false
   vertex_confidence: true
@@ -104,26 +145,70 @@ model:
 
 # Elevation surface parameters (DTM, DSM, CHM)
 dem:
-  resolution: 0  # 0 = auto
+  # Surface source for the DSM: "model" (mesh), "point_cloud", or "depth_maps"
+  source: "model"
+  interpolation: "enabled"       # Options: "enabled", "extrapolated", "disabled"
+  resolution: 0  # 0 = auto; the DTM and CHM always reuse the DSM's grid
+  # Also build/export a DSM with interpolation disabled (<name>_dsm_raw.tif) to show true coverage
+  export_raw_coverage: false
   tiff_big: true
   tiff_tiled: false
   tiff_overviews: true
+  tiff_compression: "lzw"        # Options: "lzw", "deflate", "none"
   subdivide_task: false
   nodata: -32767
 
 # Orthomosaic parameters
 orthomosaic:
+  # Orthorectification surface: "model" (mesh) or "dem" (the DSM elevation asset)
+  surface: "model"
+  resolution: 0  # 0 = native GSD
   blending_mode: "mosaic"
   ghosting_filter: true
   fill_holes: true
   cull_faces: true
   refine_seamlines: false
   subdivide_task: false
-  
-  # Export parameters
+
+  # Export parameters (the orthomosaic is 8-bit RGB + alpha; no nodata value applies)
   export:
     tiff_big: true
     tiff_tiled: true
     tiff_overviews: true
+    tiff_compression: "lzw"      # Options: "lzw", "deflate", "jpeg", "none"
+    jpeg_quality: 90
     white_background: false
-    nodata: -32767
+
+# Per-sensor overrides (deep-merged over the baseline above)
+sensor_profiles:
+  m3m: {}
+  p1:
+    camera:
+      align:
+        retry_unaligned: true
+      optimize:
+        fit_k4: false
+        fit_b1: true
+        fit_b2: true
+        fit_corrections: false
+    region:
+      mode: legacy_x3
+    boundary:
+      enabled: true
+    depth_maps:
+      filter_mode: "mild"
+      max_neighbors: 32
+    point_cloud:
+      confidence_filter:
+        enabled: true
+        min_confidence: 2
+    model:
+      surface_type: "arbitrary"
+      interpolation: "extrapolated"
+      clip_to_boundary: false
+    dem:
+      source: "model"
+      export_raw_coverage: false
+      tiff_tiled: true
+    orthomosaic:
+      surface: "model"
