@@ -41,18 +41,7 @@ def parse_arguments():
     parser.add_argument('--config', type=str, default='config.yml',
                         help='Path to configuration file')
     parser.add_argument('--folder', type=str,
-                        help='Folder to process (flat folder of images)')
-    parser.add_argument('--output-dir', type=str, default=None,
-                        help='Output folder (default: <folder>/outputs). Use a new folder for every variant run.')
-    parser.add_argument('--image-list', type=str, default=None,
-                        help='Text file with one image filename per line (relative to --folder); '
-                             'restricts processing to those images (e.g. a test sub-block)')
-    parser.add_argument('--sensor', type=str, default=None, choices=['auto', 'm3m', 'p1'],
-                        help='Sensor profile to apply from config sensor_profiles (default: config `sensor`, auto)')
-    parser.add_argument('--override-file', type=str, default=None,
-                        help='Extra YAML deep-merged over the resolved config (A/B variants)')
-    parser.add_argument('--allow-existing', action='store_true',
-                        help='Resume in an output folder that already contains a project (otherwise refused)')
+                        help='Folder to process')
     args = parser.parse_args()
     return args
 
@@ -123,37 +112,11 @@ def check_processing_status(chunk):
         'ground_points_classified': chunk.point_cloud.point_count_by_class.get(2, 0) > 0 if chunk.point_cloud else False,
         'model_built': bool(chunk.model),
         'dsm_built': any(getattr(e, "label", "") == "DSM" for e in elevations),
-        'dsm_raw_built': any(getattr(e, "label", "") == "DSM_raw" for e in elevations),
         'dtm_built': any(getattr(e, "label", "") == "DTM" for e in elevations),
         'chm_built': any(getattr(e, "label", "") == "CHM" for e in elevations),
         'orthomosaic_built': bool(chunk.orthomosaic)
     }
     return status
-
-def dem_grid_from_elevation(elevation):
-    """
-    Capture the grid (resolution + bounding box in the elevation's projection) of a built DEM so the
-    DTM and CHM can be built on exactly the same grid.
-
-    Returns:
-        dict: {'resolution': float, 'bbox': Metashape.BBox}
-    """
-    bbox = Metashape.BBox()
-    bbox.min = Metashape.Vector([elevation.left, elevation.bottom])
-    bbox.max = Metashape.Vector([elevation.right, elevation.top])
-    return {'resolution': elevation.resolution, 'bbox': bbox}
-
-def export_dem(chunk, path, projection, compression, nodata, progress):
-    """Export the active elevation asset as a single-band float GeoTIFF with a nodata tag and no alpha."""
-    chunk.exportRaster(
-        path=path,
-        projection=projection,
-        nodata_value=nodata,
-        save_alpha=False,
-        source_data=Metashape.DataSource.ElevationData,
-        image_compression=compression,
-        progress=progress
-    )
 
 def run_reconstruction():
     """
@@ -162,7 +125,6 @@ def run_reconstruction():
     Returns:
         None
     """
-    start_time = time.time()
     doc = None
     try:
         # License cleanup handlers and activation
@@ -180,42 +142,21 @@ def run_reconstruction():
         if not input_folder or not os.path.isdir(input_folder):
             print(f"Input folder not found: {input_folder}")
             sys.exit(1)
-        lowest_folder_name = os.path.basename(os.path.normpath(input_folder))
-        output_folder = args.output_dir or os.path.join(input_folder, "outputs")
-        project_path = os.path.join(output_folder, f"project_{lowest_folder_name}.psx")
-        if os.path.exists(project_path) and not args.allow_existing:
-            print(f"Refusing to run: {project_path} already exists.\n"
-                  f"Pass --allow-existing to resume that project, or --output-dir <new folder> for a new run.")
-            sys.exit(1)
+        output_folder = os.path.join(input_folder, "outputs")
         os.makedirs(output_folder, exist_ok=True)
+        lowest_folder_name = os.path.basename(os.path.normpath(input_folder))
 
         valid_exts = [".JPG", ".JPEG", ".TIF", ".TIFF"]
         photos = utils.find_files(input_folder, valid_exts)
-        if args.image_list:
-            photos = utils.read_image_list(args.image_list, input_folder)
         if not photos:
             print(f"No valid image files found in {input_folder}")
             sys.exit(1)
         print(f"Found {len(photos)} image files.")
 
-        # Resolve sensor profile and optional A/B override, then record the config actually used
-        config = utils.resolve_sensor_profile(config, args.sensor, photos)
-        if args.override_file:
-            override = load_config(args.override_file)
-            config = utils.deep_merge(config, override)
-            config['_resolved']['override_file'] = os.path.abspath(args.override_file)
-        config['_resolved']['image_list'] = os.path.abspath(args.image_list) if args.image_list else None
-        config['_resolved']['n_images'] = len(photos)
-        config['_resolved']['input_folder'] = os.path.abspath(input_folder)
-        utils.write_config_used(config, os.path.join(output_folder, f"{lowest_folder_name}_config_used.yml"))
-
-        # UTM zone for all projected outputs (uses the first photo's GPS, no alignment needed)
-        epsg_code = utils.get_utm_zone_from_gps(photos)
-        utm_projection = Metashape.OrthoProjection()
-        utm_projection.crs = Metashape.CoordinateSystem(epsg_code)
-        utm_crs = Metashape.CoordinateSystem(epsg_code)
+        config = utils.resolve_sensor_profile(config, photos)
 
         # Open or create project and chunk
+        project_path = os.path.join(output_folder, f"project_{lowest_folder_name}.psx")
         doc = Metashape.Document()
         if os.path.exists(project_path):
             print(f"Opening existing project: {project_path}")
@@ -246,7 +187,6 @@ def run_reconstruction():
             utils.progress_timer.reset()
             print(f"Added {len(chunk.cameras)} photos.")
             # Set camera labels to include lowest folder name for downstream tools
-            # (image_selection resolves image paths from these labels)
             for camera in chunk.cameras:
                 path = camera.photo.path
                 parent_dir = os.path.basename(os.path.dirname(path))
@@ -257,9 +197,6 @@ def run_reconstruction():
             print("Setting RTK accuracy...")
             utils.setup_rtk_accuracy(chunk, config)
             doc.save()
-
-            # Optional precalibration
-            utils.apply_precalibration(chunk, config['camera'].get('precalibrated'))
 
             # Image quality analysis
             print("Analyzing image quality...")
@@ -314,15 +251,13 @@ def run_reconstruction():
                     progress=utils.progress_timer.update
                 )
                 utils.progress_timer.reset()
-                print("Camera alignment finished.")
                 if align_cfg.get('retry_unaligned', False):
                     utils.retry_unaligned_cameras(chunk, align_cfg, progress=utils.progress_timer.update)
                     utils.progress_timer.reset()
-                n_aligned = sum(1 for c in chunk.cameras if c.transform is not None)
-                print(f"Aligned cameras: {n_aligned} of {len(chunk.cameras)}")
+                print("Camera alignment finished.")
 
                 # Reset region to prevent point clipping (before optimization)
-                set_region(chunk, config)
+                utils.reset_region(chunk)
 
                 # Camera optimization
                 print("Optimizing cameras...")
@@ -339,17 +274,13 @@ def run_reconstruction():
                 print("Tie point filtering finished.")
 
                 # Reset region after filtering
-                set_region(chunk, config)
+                utils.reset_region(chunk)
                 doc.save()
 
-                # Save the adjusted calibration and its parameter correlations for review / reuse
-                utils.save_calibration_and_correlations(
-                    chunk, os.path.join(output_folder, lowest_folder_name))
-
-                # Export camera positions (projected CRS)
+                # Export camera positions
                 camera_file = os.path.join(output_folder, f"{lowest_folder_name}_camera_positions.txt")
-                chunk.exportCameras(camera_file, format=Metashape.CamerasFormat.CamerasFormatOPK, crs=utm_crs)
-                print(f"Camera positions exported to {camera_file} ({epsg_code})")
+                chunk.exportCameras(camera_file, format=Metashape.CamerasFormat.CamerasFormatOPK)
+                print(f"Camera positions exported to {camera_file}")
 
                 doc.save()
                 print("Alignment and optimization finished.")
@@ -364,18 +295,18 @@ def run_reconstruction():
             print("No valid transform found. Cannot proceed with point cloud, model, or DEM generation.")
             sys.exit(1)
 
+        # Store UTM zone for later
+        epsg_code = utils.get_utm_zone_from_gps(photos)
+
         # Outer boundary shape for clipping exports
         boundary_cfg = config.get('boundary', {}) or {}
         if boundary_cfg.get('enabled', False) and not status['boundary_built']:
             try:
-                boundary_shp = os.path.join(output_folder, f"{lowest_folder_name}_boundary.shp")
-                utils.build_boundary_shape(chunk, epsg_code, boundary_cfg.get('buffer_m', 12.0), export_path=boundary_shp)
+                utils.build_boundary_shape(chunk, epsg_code, boundary_cfg.get('buffer_m', 12.0))
                 doc.save()
             except Exception as e:
                 print(f"Error building boundary shape: {e}")
                 sys.exit(1)
-        elif boundary_cfg.get('enabled', False):
-            print("Boundary shape already present, skipping...")
         use_boundary = boundary_cfg.get('enabled', False) and utils.has_boundary_shape(chunk)
 
         # Depth maps
@@ -442,24 +373,21 @@ def run_reconstruction():
         else:
             print("Point cloud already built, skipping...")
 
-        # Confidence filter (removes low-confidence points before classification, DEMs and export)
+        # Confidence filter
         conf_cfg = config['point_cloud'].get('confidence_filter', {}) or {}
-        if conf_cfg.get('enabled', False):
+        if conf_cfg.get('enabled', False) and config['point_cloud']['point_confidence']:
             if not status['confidence_filtered'] and not status['ground_points_classified']:
                 try:
-                    if not config['point_cloud']['point_confidence']:
-                        print("[WARN] confidence_filter enabled but point_confidence is false; skipping filter.")
-                    else:
-                        print("Filtering point cloud by confidence...")
-                        utils.filter_point_cloud_confidence(chunk, conf_cfg.get('min_confidence', 2),
-                                                            progress=utils.progress_timer.update)
-                        utils.progress_timer.reset()
-                        doc.save()
+                    print("Filtering point cloud by confidence...")
+                    utils.filter_point_cloud_confidence(chunk, conf_cfg.get('min_confidence', 2),
+                                                        progress=utils.progress_timer.update)
+                    utils.progress_timer.reset()
+                    doc.save()
                 except Exception as e:
                     print(f"Error filtering point cloud by confidence: {e}")
                     sys.exit(1)
             else:
-                print("Point cloud already confidence-filtered (or classified), skipping filter...")
+                print("Point cloud already confidence-filtered, skipping...")
 
         if not status['ground_points_classified']:
             try:
@@ -493,7 +421,7 @@ def run_reconstruction():
                     save_point_normal=config['point_cloud']['export']['save_point_normal'],
                     save_point_confidence=config['point_cloud']['export']['save_point_confidence'],
                     format=export_format,
-                    crs=utm_crs,
+                    crs=Metashape.CoordinateSystem(epsg_code),
                     progress=utils.progress_timer.update
                 )
                 utils.progress_timer.reset()
@@ -505,83 +433,68 @@ def run_reconstruction():
             print("Ground points already classified, skipping...")
 
         # Mesh (3d model)
-        model_cfg = config['model']
-        if model_cfg.get('enabled', True) and not status['model_built']:
+        if not status['model_built']:
             try:
                 print("Building 3D model...")
-                model_kwargs = dict(
-                    surface_type=utils.surface_type_from_str(model_cfg.get('surface_type', 'arbitrary')),
-                    interpolation=utils.interpolation_from_str(model_cfg.get('interpolation', 'enabled')),
-                    face_count=utils.face_count_from_str(model_cfg.get('face_count', 'high')),
+                chunk.buildModel(
+                    surface_type=utils.surface_type_from_str(config['model'].get('surface_type', 'arbitrary')),
+                    interpolation=utils.interpolation_from_str(config['model'].get('interpolation', 'enabled')),
+                    face_count=Metashape.FaceCount.HighFaceCount,
                     source_data=Metashape.DataSource.DepthMapsData,
-                    vertex_colors=model_cfg['vertex_colors'],
-                    vertex_confidence=model_cfg['vertex_confidence'],
-                    keep_depth=model_cfg['keep_depth'],
-                    subdivide_task=model_cfg['subdivide_task'],
+                    vertex_colors=config['model']['vertex_colors'],
+                    vertex_confidence=config['model']['vertex_confidence'],
+                    keep_depth=config['model']['keep_depth'],
+                    subdivide_task=config['model']['subdivide_task'],
                     progress=utils.progress_timer.update
                 )
-                if use_boundary and model_cfg.get('clip_to_boundary', False):
-                    model_kwargs['clip_to_boundary'] = True
-                chunk.buildModel(**model_kwargs)
                 utils.progress_timer.reset()
                 doc.save()
                 print("3D model finished building.")
             except Exception as e:
                 print(f"Error building model: {e}")
                 sys.exit(1)
-        elif not model_cfg.get('enabled', True):
-            print("Model disabled in config, skipping...")
         else:
             print("3D model already built, skipping...")
 
-        # Compression settings: DEMs and orthomosaic have separate sections
-        dem_compression = utils.make_compression(config['dem'])
-        ortho_compression = utils.make_compression(config['orthomosaic']['export'])
-        dem_nodata = config['dem']['nodata']
-        dem_interp = utils.interpolation_from_str(config['dem'].get('interpolation', 'enabled'))
-        dem_source_str = str(config['dem'].get('source', 'model')).lower()
-        dem_source = utils.dem_source_from_str(dem_source_str)
-        if dem_source == Metashape.DataSource.ModelData and not chunk.model:
-            print("[WARN] dem.source is 'model' but no mesh exists; using point cloud for the DSM.")
-            dem_source = Metashape.DataSource.PointCloudData
-            dem_source_str = 'point_cloud'
+        # Set up compression for elevation surfaces and orthomosaic
+        compression = Metashape.ImageCompression()
+        compression.tiff_big = config['dem']['tiff_big']
+        compression.tiff_tiled = config['dem']['tiff_tiled']
+        compression.tiff_overviews = config['dem']['tiff_overviews']
+
+        # Set up projection for elevation surfaces and orthomosaic
+        utm_projection = Metashape.OrthoProjection()
+        utm_projection.crs = Metashape.CoordinateSystem(epsg_code)
 
         dsm_file = os.path.join(output_folder, f"{lowest_folder_name}_dsm.tif")
-        dsm_raw_file = os.path.join(output_folder, f"{lowest_folder_name}_dsm_raw.tif")
         dtm_file = os.path.join(output_folder, f"{lowest_folder_name}_dtm.tif")
         chm_file = os.path.join(output_folder, f"{lowest_folder_name}_chm.tif")
 
         # DSM
         if not status['dsm_built']:
             try:
+                dem_source_str = str(config['dem'].get('source', 'model')).lower()
                 print(f"Building DSM from {dem_source_str}...")
-                try:
-                    chunk.buildDem(
-                        source_data=dem_source,
-                        interpolation=dem_interp,
-                        projection=utm_projection,
-                        subdivide_task=config['dem']['subdivide_task'],
-                        resolution=config['dem']['resolution'],
-                        progress=utils.progress_timer.update
-                    )
-                except Exception as e:
-                    if dem_source == Metashape.DataSource.DepthMapsData:
-                        print(f"[WARN] DSM from depth maps failed ({e}); falling back to point cloud.")
-                        dem_source = Metashape.DataSource.PointCloudData
-                        chunk.buildDem(
-                            source_data=dem_source,
-                            interpolation=dem_interp,
-                            projection=utm_projection,
-                            subdivide_task=config['dem']['subdivide_task'],
-                            resolution=config['dem']['resolution'],
-                            progress=utils.progress_timer.update
-                        )
-                    else:
-                        raise
+                chunk.buildDem(
+                    source_data=utils.dem_source_from_str(dem_source_str),
+                    interpolation=Metashape.Interpolation.EnabledInterpolation,
+                    projection=utm_projection,
+                    subdivide_task=config['dem']['subdivide_task'],
+                    resolution=config['dem']['resolution'],
+                    progress=utils.progress_timer.update
+                )
                 utils.progress_timer.reset()
                 chunk.elevation.label = "DSM"
                 doc.save()
-                export_dem(chunk, dsm_file, utm_projection, dem_compression, dem_nodata, utils.progress_timer.update)
+
+                chunk.exportRaster(
+                    path=dsm_file,
+                    projection=utm_projection,
+                    nodata_value=config['dem']['nodata'],
+                    source_data=Metashape.DataSource.ElevationData,
+                    image_compression=compression,
+                    progress=utils.progress_timer.update
+                )
                 utils.progress_timer.reset()
                 print("DSM exported.")
             except Exception as e:
@@ -590,54 +503,41 @@ def run_reconstruction():
         else:
             print("DSM already built, skipping...")
 
+        # DTM and CHM share the DSM grid
         dsm_asset = utils.get_elevation_by_label(chunk, "DSM")
         if dsm_asset is None:
-            print("DSM asset not found; cannot continue.")
+            print("DSM asset not found.")
             sys.exit(1)
-        dem_grid = dem_grid_from_elevation(dsm_asset)
-        print(f"DSM grid: resolution {dem_grid['resolution']:.5f} m, extent "
-              f"({dsm_asset.left:.2f}, {dsm_asset.bottom:.2f}) - ({dsm_asset.right:.2f}, {dsm_asset.top:.2f})")
+        dem_bbox = Metashape.BBox()
+        dem_bbox.min = Metashape.Vector([dsm_asset.left, dsm_asset.bottom])
+        dem_bbox.max = Metashape.Vector([dsm_asset.right, dsm_asset.top])
+        dem_resolution = dsm_asset.resolution
 
-        # DSM without interpolation: true coverage map for diagnostics (not used downstream)
-        if config['dem'].get('export_raw_coverage', False) and not status['dsm_raw_built']:
-            try:
-                print(f"Building DSM_raw (no interpolation) from {dem_source_str}...")
-                chunk.buildDem(
-                    source_data=dem_source,
-                    interpolation=Metashape.Interpolation.DisabledInterpolation,
-                    projection=utm_projection,
-                    region=dem_grid['bbox'],
-                    subdivide_task=config['dem']['subdivide_task'],
-                    resolution=dem_grid['resolution'],
-                    progress=utils.progress_timer.update
-                )
-                utils.progress_timer.reset()
-                chunk.elevation.label = "DSM_raw"
-                doc.save()
-                export_dem(chunk, dsm_raw_file, utm_projection, dem_compression, dem_nodata, utils.progress_timer.update)
-                utils.progress_timer.reset()
-                print("DSM_raw exported.")
-            except Exception as e:
-                print(f"[WARN] DSM_raw failed (diagnostic product only): {e}")
-
-        # DTM (same grid as the DSM)
+        # DTM
         if not status['dtm_built']:
             try:
                 print("Building DTM from ground points in point cloud...")
                 chunk.buildDem(
                     source_data=Metashape.DataSource.PointCloudData,
                     classes=[Metashape.PointClass.Ground],
-                    interpolation=dem_interp,
                     projection=utm_projection,
-                    region=dem_grid['bbox'],
+                    region=dem_bbox,
                     subdivide_task=config['dem']['subdivide_task'],
-                    resolution=dem_grid['resolution'],
+                    resolution=dem_resolution,
                     progress=utils.progress_timer.update
                 )
                 utils.progress_timer.reset()
                 chunk.elevation.label = "DTM"
                 doc.save()
-                export_dem(chunk, dtm_file, utm_projection, dem_compression, dem_nodata, utils.progress_timer.update)
+
+                chunk.exportRaster(
+                    path=dtm_file,
+                    projection=utm_projection,
+                    nodata_value=config['dem']['nodata'],
+                    source_data=Metashape.DataSource.ElevationData,
+                    image_compression=compression,
+                    progress=utils.progress_timer.update
+                )
                 utils.progress_timer.reset()
                 print("DTM exported.")
             except Exception as e:
@@ -646,29 +546,40 @@ def run_reconstruction():
         else:
             print("DTM already built, skipping...")
 
-        # CHM (same grid as the DSM)
+        # CHM
         if not status['chm_built']:
             try:
                 print("Creating Canopy Height Model (CHM)...")
-                dsm_asset = utils.get_elevation_by_label(chunk, "DSM")
                 dtm_asset = utils.get_elevation_by_label(chunk, "DTM")
                 if dsm_asset is not None and dtm_asset is not None:
                     chunk.transformRaster(
                         asset=dsm_asset.key,
                         operand_asset=dtm_asset.key,
                         subtract=True,
-                        nodata_value=dem_nodata,
+                        nodata_value=config['dem']['nodata'],
                         projection=utm_projection,
-                        region=dem_grid['bbox'],
-                        resolution=dem_grid['resolution'],
+                        region=dem_bbox,
+                        resolution=dem_resolution,
                         replace_asset=False,
                         clip_to_boundary=use_boundary
                     )
                     chunk.elevation.label = "CHM"
                     doc.save()
-                    export_dem(chunk, chm_file, utm_projection, dem_compression, dem_nodata, utils.progress_timer.update)
-                    utils.progress_timer.reset()
+                    chunk.exportRaster(
+                        path=chm_file,
+                        projection=utm_projection,
+                        nodata_value=config['dem']['nodata'],
+                        source_data=Metashape.DataSource.ElevationData,
+                        image_compression=compression,
+                        progress=utils.progress_timer.update
+                    )
                     print("CHM exported.")
+                    # Metashape's CHM can be one pixel narrower than the DSM; recompute on the DSM grid if so
+                    if utils.rasters_share_grid([dsm_file, dtm_file, chm_file]) is False:
+                        chm_ms_file = os.path.join(output_folder, f"{lowest_folder_name}_chm_metashape.tif")
+                        os.replace(chm_file, chm_ms_file)
+                        utils.compute_chm_with_gdal(dsm_file, dtm_file, chm_file, nodata=float(config['dem']['nodata']))
+                        print(f"CHM recomputed on the DSM grid; Metashape CHM kept as {os.path.basename(chm_ms_file)}.")
                 else:
                     print("DSM or DTM asset not found, CHM not created.")
             except Exception as e:
@@ -677,28 +588,8 @@ def run_reconstruction():
         else:
             print("CHM already built, skipping...")
 
-        # Verify the three exported grids match; if not, recompute the CHM on the DSM grid with GDAL
-        try:
-            print("Checking DSM/DTM/CHM grid alignment...")
-            aligned = utils.check_raster_grid_alignment({'DSM': dsm_file, 'DTM': dtm_file, 'CHM': chm_file})
-            if aligned is False:
-                # Keep Metashape's CHM for reference and make the GDAL CHM (exactly on the DSM grid) the
-                # canonical <name>_chm.tif that canopy segmentation reads.
-                chm_ms_file = os.path.join(output_folder, f"{lowest_folder_name}_chm_metashape.tif")
-                chm_gdal_file = os.path.join(output_folder, f"{lowest_folder_name}_chm_gdal.tif")
-                utils.compute_chm_with_gdal(dsm_file, dtm_file, chm_gdal_file, nodata=float(dem_nodata))
-                if os.path.isfile(chm_file):
-                    os.replace(chm_file, chm_ms_file)
-                os.replace(chm_gdal_file, chm_file)
-                print(f"[WARN] Metashape CHM grid differed from the DSM; {os.path.basename(chm_file)} is now the "
-                      f"GDAL DSM-DTM on the DSM grid and Metashape's CHM was kept as {os.path.basename(chm_ms_file)}.")
-        except Exception as e:
-            print(f"[WARN] Grid alignment check failed: {e}")
-
         # Set DSM as active elevation surface before building orthomosaic
-        dsm_asset = utils.get_elevation_by_label(chunk, "DSM")
-        if dsm_asset is not None:
-            chunk.elevation = dsm_asset
+        chunk.elevation = dsm_asset
 
         # Orthomosaic
         if not status['orthomosaic_built']:
@@ -708,10 +599,6 @@ def run_reconstruction():
                     surface_data = Metashape.DataSource.ElevationData
                 else:
                     surface_data = Metashape.DataSource.ModelData
-                    if not chunk.model:
-                        print("[WARN] orthomosaic.surface is 'model' but no mesh exists; using the DSM.")
-                        surface_data = Metashape.DataSource.ElevationData
-                        surface_str = 'dem'
                 print(f"Building orthomosaic on {surface_str} surface...")
                 blend_str = config['orthomosaic']['blending_mode'].lower()
                 if blend_str == "mosaic":
@@ -732,8 +619,6 @@ def run_reconstruction():
                     fill_holes=config['orthomosaic']['fill_holes'],
                     cull_faces=config['orthomosaic']['cull_faces'],
                     refine_seamlines=config['orthomosaic']['refine_seamlines'],
-                    projection=utm_projection,
-                    resolution=config['orthomosaic'].get('resolution', 0),
                     subdivide_task=config['orthomosaic']['subdivide_task'],
                     progress=utils.progress_timer.update
                 )
@@ -746,9 +631,9 @@ def run_reconstruction():
                     ortho_file,
                     source_data=Metashape.DataSource.OrthomosaicData,
                     projection=utm_projection,
-                    image_compression=ortho_compression,
-                    save_alpha=True,
+                    image_compression=compression,
                     white_background=config['orthomosaic']['export']['white_background'],
+                    nodata_value=config['orthomosaic']['export']['nodata'],
                     progress=utils.progress_timer.update
                 )
                 utils.progress_timer.reset()
@@ -763,27 +648,10 @@ def run_reconstruction():
 
         try:
             report_file = os.path.join(output_folder, f"{lowest_folder_name}_report.pdf")
-            resolved = config.get('_resolved', {})
-            user_settings = [
-                ("Sensor profile", str(resolved.get('sensor_profile'))),
-                ("EXIF model", str(resolved.get('exif_model'))),
-                ("Metashape module", str(Metashape.app.version)),
-                ("Config used", f"{lowest_folder_name}_config_used.yml"),
-                ("Image list", str(resolved.get('image_list'))),
-                ("Override file", str(resolved.get('override_file'))),
-                ("DSM source", dem_source_str),
-                ("Orthomosaic surface", str(config['orthomosaic'].get('surface', 'model'))),
-            ]
-            try:
-                chunk.exportReport(report_file, title=f"Reconstruction {lowest_folder_name}",
-                                   user_settings=user_settings)
-            except Exception as e:
-                print(f"[WARN] exportReport with user_settings failed ({e}); exporting plain report.")
-                chunk.exportReport(report_file)
+            chunk.exportReport(report_file)
             print("Report exported.")
 
-            elapsed = time.time() - start_time
-            print(f"Processing finished for {lowest_folder_name} in {elapsed / 3600:.2f} h; results saved to {output_folder}.")
+            print(f"Processing finished for {lowest_folder_name}; results saved to {output_folder}.")
 
             doc.save()
             doc = None
@@ -798,25 +666,13 @@ def run_reconstruction():
             sys.exit(1)
 
     except Exception as e:
-        print(f"Error processing folder {args.folder if 'args' in locals() else '?'}: {e}")
+        print(f"Error processing folder {input_folder}: {e}")
         sys.exit(1)
     finally:
         if 'doc' in locals() and doc is not None:
             doc.save()
             doc = None
         gc.collect()
-
-def set_region(chunk, config):
-    """
-    Apply the configured region mode after alignment.
-    """
-    region_cfg = config.get('region', {}) or {}
-    mode = str(region_cfg.get('mode', 'legacy_x3')).lower()
-    if mode == 'cameras':
-        if not utils.set_region_from_cameras(chunk, region_cfg):
-            utils.reset_region(chunk)
-    else:
-        utils.reset_region(chunk)
 
 if __name__ == '__main__':
     run_reconstruction()
