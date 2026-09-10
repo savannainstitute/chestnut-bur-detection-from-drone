@@ -178,13 +178,18 @@ All written to `<folder>/outputs/`:
 
 | File | Description |
 |------|-------------|
-| `<name>.psx` | Metashape project file (resumable) |
-| `<name>_dsm.tif` | Digital Surface Model (GeoTIFF, UTM) |
-| `<name>_dtm.tif` | Digital Terrain Model (ground points only) |
-| `<name>_chm.tif` | Canopy Height Model = DSM − DTM |
-| `<name>_orthomosaic.tif` | Georeferenced aerial image (GeoTIFF) |
-| `<name>_point_cloud.las` | Dense point cloud (RGB + confidence) |
-| `<name>_camera_positions.txt` | Camera OPK exterior orientations |
+| `project_<name>.psx` | Metashape project file (resumable) |
+| `<name>_dsm.tif` | Digital Surface Model (GeoTIFF, UTM, single band, nodata −32767) |
+| `<name>_dsm_raw.tif` | DSM built without interpolation (true surface coverage; diagnostics only; written when `dem.export_raw_coverage` is on) |
+| `<name>_dtm.tif` | Digital Terrain Model (ground points only), DSM grid |
+| `<name>_chm.tif` | Canopy Height Model = DSM − DTM, DSM grid |
+| `<name>_orthomosaic.tif` | Georeferenced aerial image (GeoTIFF, RGB + alpha) |
+| `<name>_point_cloud.las` | Dense point cloud (RGB + confidence), after the optional confidence filter |
+| `<name>_camera_positions.txt` | Camera OPK exterior orientations (UTM) |
+| `<name>_boundary.shp` | Outer processing boundary (buffered hull of camera positions; written when `boundary.enabled` is on) |
+| `<name>_calibration_sensor0.xml` | Adjusted camera calibration (reusable via `camera.precalibrated`) |
+| `<name>_calibration_correlations_sensor0.csv` | Correlation matrix of the fitted calibration parameters |
+| `<name>_config_used.yml` | The fully merged configuration the run actually used (sensor profile + overrides) |
 | `<name>_report.pdf` | Metashape processing report |
 
 ### Usage
@@ -198,22 +203,77 @@ python -m flight_reconstruction.reconstruction `
     --folder "flight_reconstruction/sample_data/20230823_Orchard4"
 ```
 
+Optional arguments:
+
+| Argument | Description |
+|----------|-------------|
+| `--output-dir <folder>` | Write to a folder other than `<folder>/outputs` (use a new folder for every variant run) |
+| `--image-list <txt>` | Process only the images listed (one filename per line, relative to `--folder`), e.g. a test sub-block |
+| `--sensor auto\|m3m\|p1` | Sensor profile to apply (default: `sensor` key in the config, `auto` = detect from EXIF) |
+| `--override-file <yml>` | Extra YAML deep-merged over the resolved config |
+| `--allow-existing` | Resume a run whose output folder already contains a project; without it the script refuses to touch an existing project |
+
+### Sensor profiles
+
+| Profile | Selected by | Overrides |
+|---------|-------------|-----------|
+| baseline / `m3m` | EXIF model `M3M`, `--sensor m3m` | none |
+| `p1` | EXIF model `ZenmuseP1`, `--sensor p1` | see `sensor_profiles.p1` in `config.yml` |
+
 ### Key Config Parameters
 
 | Key | Default | Description |
 |-----|---------|-------------|
+| `sensor` | `auto` | Sensor profile: `auto`, `m3m`, `p1` |
 | `gps.use_rtk` | `true` | Read RTK accuracy from DJI XMP metadata |
 | `image_quality.quality_threshold` | `0.70` | Discard images below this Metashape quality score (0–1) |
 | `photo_matching.downscale` | `1` | Matching resolution; 1 = full resolution |
 | `photo_matching.keypoint_limit` | `80000` | Max keypoints per image |
+| `camera.align.retry_unaligned` | `false` | Re-run alignment on cameras left unaligned by the first pass |
+| `camera.optimize.fit_*` | see file | Calibration parameters to fit; `fit_corrections` = Metashape "additional corrections" |
+| `camera.precalibrated.{enabled,path,fixed}` | `false` | Load a saved calibration XML before matching (optionally fixed) |
 | `tie_point_filtering.reconstruction_uncertainty.percentile` | `20` | Remove worst 20% by reconstruction uncertainty |
 | `tie_point_filtering.projection_accuracy.percentile` | `30` | Remove worst 30% by projection accuracy |
 | `tie_point_filtering.reprojection_error.percentile` | `5` | Remove worst 5% by reprojection error |
+| `region.mode` | `legacy_x3` | `legacy_x3` (reset region, triple height) or `cameras` (XY from cameras + buffer, Z from ground to camera height) |
+| `boundary.enabled` / `boundary.buffer_m` | `false` / `12` | Outer boundary shape (buffered convex hull of cameras) used to clip DEM/ortho/mesh |
 | `depth_maps.downscale` | `2` | Depth map resolution; 2 = half resolution |
 | `depth_maps.filter_mode` | `disabled` | Depth filtering: `mild`, `moderate`, `aggressive`, or `disabled` |
+| `point_cloud.confidence_filter.{enabled,min_confidence}` | `false` / `2` | Remove points with confidence below the threshold before classification, DEMs and export (count is logged) |
 | `classify_ground_points.max_angle` | `15.0` | Maximum slope angle (°) for ground classification |
-| `dem.resolution` | `0` | Output raster resolution; `0` = auto from GSD |
+| `model.enabled` / `model.surface_type` / `model.interpolation` | `true` / `arbitrary` / `enabled` | Mesh generation; `height_field` and `extrapolated` are the alternatives |
+| `dem.source` | `model` | DSM source: `model` (mesh), `point_cloud`, or `depth_maps` |
+| `dem.resolution` | `0` | DSM resolution; `0` = auto from GSD. The DTM and CHM always reuse the DSM grid |
+| `dem.export_raw_coverage` | `false` | Also export a non-interpolated `_dsm_raw.tif` |
+| `orthomosaic.surface` | `model` | Orthorectification surface: `model` (mesh) or `dem` (the DSM) |
 | `orthomosaic.blending_mode` | `mosaic` | Blending algorithm for orthomosaic |
+| `orthomosaic.export.tiff_compression` | `lzw` | Orthomosaic GeoTIFF compression (`lzw`, `deflate`, `jpeg`, `none`); DEMs use `dem.tiff_compression` |
+
+### Diagnostics
+
+`flight_reconstruction/diagnostics/` holds read-only checks (no Metashape licence needed except `calib_report.py`; all outputs go to `--out`):
+
+```powershell
+# Orthomosaic no-data holes, DSM behaviour under them, elevation outliers, DEM grid alignment
+python -m flight_reconstruction.diagnostics.raster_gaps `
+    --ortho <name>_orthomosaic.tif --dsm <name>_dsm.tif --chm <name>_chm.tif --dtm <name>_dtm.tif `
+    [--dsm-raw <name>_dsm_raw.tif] [--boundary <name>_boundary.shp] --out <diagnostics folder> [--plausible-z 360 460]
+
+# Pick a sub-block of images by camera position (EXIF GPS) for a fast test run
+python -m flight_reconstruction.diagnostics.select_subset --folder <images> --epsg 32617 `
+    --window XMIN YMIN XMAX YMAX --buffer-m 45 --out <list.txt>
+
+# Calibration / alignment report from a project opened read-only
+python -m flight_reconstruction.diagnostics.calib_report --psx <project.psx> --out <folder>
+```
+
+| Script | Outputs |
+|--------|---------|
+| `raster_gaps.py` | `gaps_summary.json`, `hole_components.csv`, `holes_mask.tif`, `outliers_mask.tif`, `params_used.json` |
+| `select_subset.py` | image list `.txt`, positions `.csv` |
+| `calib_report.py` | calibration XML, correlation CSV, report JSON |
+| `compare_runs.py` | Markdown table, optional CSV |
+| `ortho_crops.py` | `ortho_crops.png`, `ortho_crops.csv` |
 
 ### Limitations
 
@@ -303,7 +363,7 @@ python -m canopy_segmentation.segmentation `
 Selects the highest-quality raw drone image for each canopy polygon using Metashape's calibrated 3D camera model for back-projection:
 
 1. Back-projects each canopy polygon onto all candidate raw images using the Metashape camera model (accounts for lens distortion, orientation, and 3D position)
-2. Retains images where the polygon projects within a 10 m distance threshold on the image plane
+2. Retains the 3 nearest images whose camera position is within 10 m (ground XY distance) of the canopy centroid
 3. Scores each candidate image:
    - **Exposure:** mean pixel value in projected region; filtered to 0.15–0.85 (discards over/underexposed images)
    - **Gimbal pitch:** read from DJI XMP tag; images near nadir (~−90° ± 5°) are preferred
@@ -575,7 +635,7 @@ data:
 ## Limitations and Known Assumptions
 
 - **Platform:** Windows-only due to the Agisoft Metashape Python API (Steps 1 and 3)
-- **Drone hardware:** Optimized for DJI Mavic 3M; RTK accuracy parsing and gimbal pitch metadata both depend on DJI-specific XMP tags
+- **Drone hardware:** DJI Mavic 3M (baseline) and DJI Zenmuse P1 (`p1` profile); RTK accuracy parsing and gimbal pitch metadata depend on DJI XMP tags. Burr-detection tile size (224 px) was set at M3M GSD
 - **Single class:** The detector is configured for one object class (burr); multi-class use requires label and config changes
 - **Canopy segmentation:** One-to-one mapping between markers and canopies; touching or overlapping crowns are not automatically split without separate markers per crown and, as such, outputs usually require manual cleanup. ## TODO: instance segmentation from point cloud
 - **Image selection:** Does not account for occlusion of a canopy by adjacent trees or branches
