@@ -179,17 +179,12 @@ All written to `<folder>/outputs/`:
 | File | Description |
 |------|-------------|
 | `project_<name>.psx` | Metashape project file (resumable) |
-| `<name>_dsm.tif` | Digital Surface Model (GeoTIFF, UTM, single band, nodata −32767) |
-| `<name>_dsm_raw.tif` | DSM built without interpolation (true surface coverage; diagnostics only; written when `dem.export_raw_coverage` is on) |
+| `<name>_dsm.tif` | Digital Surface Model (GeoTIFF, UTM) |
 | `<name>_dtm.tif` | Digital Terrain Model (ground points only), DSM grid |
 | `<name>_chm.tif` | Canopy Height Model = DSM − DTM, DSM grid |
-| `<name>_orthomosaic.tif` | Georeferenced aerial image (GeoTIFF, RGB + alpha) |
-| `<name>_point_cloud.las` | Dense point cloud (RGB + confidence), after the optional confidence filter |
-| `<name>_camera_positions.txt` | Camera OPK exterior orientations (UTM) |
-| `<name>_boundary.shp` | Outer processing boundary (buffered hull of camera positions; written when `boundary.enabled` is on) |
-| `<name>_calibration_sensor0.xml` | Adjusted camera calibration (reusable via `camera.precalibrated`) |
-| `<name>_calibration_correlations_sensor0.csv` | Correlation matrix of the fitted calibration parameters |
-| `<name>_config_used.yml` | The fully merged configuration the run actually used (sensor profile + overrides) |
+| `<name>_orthomosaic.tif` | Georeferenced aerial image (GeoTIFF) |
+| `<name>_point_cloud.las` | Dense point cloud (RGB + confidence) |
+| `<name>_camera_positions.txt` | Camera OPK exterior orientations |
 | `<name>_report.pdf` | Metashape processing report |
 
 ### Usage
@@ -203,22 +198,12 @@ python -m flight_reconstruction.reconstruction `
     --folder "flight_reconstruction/sample_data/20230823_Orchard4"
 ```
 
-Optional arguments:
-
-| Argument | Description |
-|----------|-------------|
-| `--output-dir <folder>` | Write to a folder other than `<folder>/outputs` (use a new folder for every variant run) |
-| `--image-list <txt>` | Process only the images listed (one filename per line, relative to `--folder`), e.g. a test sub-block |
-| `--sensor auto\|m3m\|p1` | Sensor profile to apply (default: `sensor` key in the config, `auto` = detect from EXIF) |
-| `--override-file <yml>` | Extra YAML deep-merged over the resolved config |
-| `--allow-existing` | Resume a run whose output folder already contains a project; without it the script refuses to touch an existing project |
-
 ### Sensor profiles
 
 | Profile | Selected by | Overrides |
 |---------|-------------|-----------|
-| baseline / `m3m` | EXIF model `M3M`, `--sensor m3m` | none |
-| `p1` | EXIF model `ZenmuseP1`, `--sensor p1` | see `sensor_profiles.p1` in `config.yml` |
+| baseline / `m3m` | EXIF model `M3M` | none |
+| `p1` | EXIF model `ZenmuseP1` | `sensor_profiles.p1` in `config.yml` |
 
 ### Key Config Parameters
 
@@ -229,51 +214,20 @@ Optional arguments:
 | `image_quality.quality_threshold` | `0.70` | Discard images below this Metashape quality score (0–1) |
 | `photo_matching.downscale` | `1` | Matching resolution; 1 = full resolution |
 | `photo_matching.keypoint_limit` | `80000` | Max keypoints per image |
-| `camera.align.retry_unaligned` | `false` | Re-run alignment on cameras left unaligned by the first pass |
-| `camera.optimize.fit_*` | see file | Calibration parameters to fit; `fit_corrections` = Metashape "additional corrections" |
-| `camera.precalibrated.{enabled,path,fixed}` | `false` | Load a saved calibration XML before matching (optionally fixed) |
+| `camera.align.retry_unaligned` | `false` | Re-run alignment on cameras left unaligned |
 | `tie_point_filtering.reconstruction_uncertainty.percentile` | `20` | Remove worst 20% by reconstruction uncertainty |
 | `tie_point_filtering.projection_accuracy.percentile` | `30` | Remove worst 30% by projection accuracy |
 | `tie_point_filtering.reprojection_error.percentile` | `5` | Remove worst 5% by reprojection error |
-| `region.mode` | `legacy_x3` | `legacy_x3` (reset region, triple height) or `cameras` (XY from cameras + buffer, Z from ground to camera height) |
-| `boundary.enabled` / `boundary.buffer_m` | `false` / `12` | Outer boundary shape (buffered convex hull of cameras) used to clip DEM/ortho/mesh |
+| `boundary.enabled` / `boundary.buffer_m` | `false` / `12` | Buffered camera hull used to clip raster exports |
 | `depth_maps.downscale` | `2` | Depth map resolution; 2 = half resolution |
 | `depth_maps.filter_mode` | `disabled` | Depth filtering: `mild`, `moderate`, `aggressive`, or `disabled` |
-| `point_cloud.confidence_filter.{enabled,min_confidence}` | `false` / `2` | Remove points with confidence below the threshold before classification, DEMs and export (count is logged) |
+| `point_cloud.confidence_filter.{enabled,min_confidence}` | `false` / `2` | Remove points below the confidence threshold |
 | `classify_ground_points.max_angle` | `15.0` | Maximum slope angle (°) for ground classification |
-| `model.enabled` / `model.surface_type` / `model.interpolation` | `true` / `arbitrary` / `enabled` | Mesh generation; `height_field` and `extrapolated` are the alternatives |
-| `dem.source` | `model` | DSM source: `model` (mesh), `point_cloud`, or `depth_maps` |
-| `dem.resolution` | `0` | DSM resolution; `0` = auto from GSD. The DTM and CHM always reuse the DSM grid |
-| `dem.export_raw_coverage` | `false` | Also export a non-interpolated `_dsm_raw.tif` |
-| `orthomosaic.surface` | `model` | Orthorectification surface: `model` (mesh) or `dem` (the DSM) |
+| `model.surface_type` / `model.interpolation` | `arbitrary` / `enabled` | Mesh surface type and interpolation |
+| `dem.source` | `model` | DSM source: `model`, `point_cloud`, or `depth_maps` |
+| `dem.resolution` | `0` | DSM resolution; `0` = auto; DTM and CHM use the DSM grid |
+| `orthomosaic.surface` | `model` | Orthorectification surface: `model` or `dem` |
 | `orthomosaic.blending_mode` | `mosaic` | Blending algorithm for orthomosaic |
-| `orthomosaic.export.tiff_compression` | `lzw` | Orthomosaic GeoTIFF compression (`lzw`, `deflate`, `jpeg`, `none`); DEMs use `dem.tiff_compression` |
-
-### Diagnostics
-
-`flight_reconstruction/diagnostics/` holds read-only checks (no Metashape licence needed except `calib_report.py`; all outputs go to `--out`):
-
-```powershell
-# Orthomosaic no-data holes, DSM behaviour under them, elevation outliers, DEM grid alignment
-python -m flight_reconstruction.diagnostics.raster_gaps `
-    --ortho <name>_orthomosaic.tif --dsm <name>_dsm.tif --chm <name>_chm.tif --dtm <name>_dtm.tif `
-    [--dsm-raw <name>_dsm_raw.tif] [--boundary <name>_boundary.shp] --out <diagnostics folder> [--plausible-z 360 460]
-
-# Pick a sub-block of images by camera position (EXIF GPS) for a fast test run
-python -m flight_reconstruction.diagnostics.select_subset --folder <images> --epsg 32617 `
-    --window XMIN YMIN XMAX YMAX --buffer-m 45 --out <list.txt>
-
-# Calibration / alignment report from a project opened read-only
-python -m flight_reconstruction.diagnostics.calib_report --psx <project.psx> --out <folder>
-```
-
-| Script | Outputs |
-|--------|---------|
-| `raster_gaps.py` | `gaps_summary.json`, `hole_components.csv`, `holes_mask.tif`, `outliers_mask.tif`, `params_used.json` |
-| `select_subset.py` | image list `.txt`, positions `.csv` |
-| `calib_report.py` | calibration XML, correlation CSV, report JSON |
-| `compare_runs.py` | Markdown table, optional CSV |
-| `ortho_crops.py` | `ortho_crops.png`, `ortho_crops.csv` |
 
 ### Limitations
 
