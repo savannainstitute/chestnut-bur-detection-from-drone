@@ -1,0 +1,12 @@
+name: <name>
+instance_type_name: <instance_type>
+file_system_mounts:
+- file_system_id: <filesystem_id>
+  mount_point: /home/ubuntu/si
+region_name: <region>
+ssh_key_names:
+- <ssh_keyname>
+user_data: |
+  #cloud-config
+  runcmd:
+  -  sudo -u ubuntu bash /home/ubuntu/si/chestnut-burr-detection-from-drone/scripts/setup-lambda-instance.sh

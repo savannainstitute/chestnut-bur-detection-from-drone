@@ -12,8 +12,10 @@ dependencies:
   - shapely=2.1.2
   - pip:
     - easyidp
+    - click
     - optuna
     - pyexiv2
     - pyyaml
     - "ray[tune]"
+    - requests
     - ultralytics
