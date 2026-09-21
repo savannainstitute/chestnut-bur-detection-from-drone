@@ -8,6 +8,6 @@
 /runs
 *.log
 /burr_detection/tests
-.claude/settings.local.json
+/.claude/
 CLAUDE.md
 CLAUDE.local.md
