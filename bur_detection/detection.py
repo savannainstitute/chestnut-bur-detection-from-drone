@@ -7,10 +7,10 @@ import argparse
 from pathlib import Path
 from typing import Dict
 
-from burr_detection.training import YOLOTrainer
-from burr_detection.tuning import YOLOTuner
-from burr_detection.inference import YOLOInference
-from burr_detection.utils import load_config, plot_dataset_samples, get_output_dir
+from bur_detection.training import YOLOTrainer
+from bur_detection.tuning import YOLOTuner
+from bur_detection.inference import YOLOInference
+from bur_detection.utils import load_config, plot_dataset_samples, get_output_dir
         
 
 def run_training(args, config: Dict, run_dir, override_params=None):
@@ -75,7 +75,7 @@ def run_tuning(args, config: Dict, run_dir):
         keep_top_n=config['ray_tune'].get('keep_top_n', 5),
         # Cross-run winner index at the dataset's outputs/ root (accumulates over runs).
         registry_path=str(Path(config['data'].get(
-            'outputs_dir', 'burr_detection/sample_data/training/outputs')) / 'model_registry.csv')
+            'outputs_dir', 'bur_detection/sample_data/training/outputs')) / 'model_registry.csv')
     )
 
     tuner.run()
@@ -97,7 +97,7 @@ def run_tuning(args, config: Dict, run_dir):
 
 def run_inference(args, config: Dict, run_dir):
     print("\n" + "="*80)
-    print("Burr detection on unlabeled canopy images")
+    print("Bur detection on unlabeled canopy images")
     print("="*80)
 
     tiling = config['data'].get('tiling', {})
@@ -112,7 +112,7 @@ def run_inference(args, config: Dict, run_dir):
         tile_size=tiling.get('tile_size', 224),
         overlap=tiling.get('overlap', 0.2),
         output_dir=Path(run_dir) / "inference",
-        outputs_dir=config['data'].get('outputs_dir', 'burr_detection/sample_data/training/outputs')
+        outputs_dir=config['data'].get('outputs_dir', 'bur_detection/sample_data/training/outputs')
     )
     inference.run()
 
@@ -126,7 +126,7 @@ def run_preprocess(args, config: Dict, run_dir):
     polygon tiler (canopy mask -> tile -> clip polygons to bboxes -> quality filters ->
     group-aware split); otherwise splits the pre-made tiles already in training_dir.
     """
-    from burr_detection.dataset import create_tiled_dataset, prepare_dataset_splits, burr_tile_group_key
+    from bur_detection.dataset import create_tiled_dataset, prepare_dataset_splits, bur_tile_group_key
 
     print("\n" + "="*80)
     print("Preprocessing: tile (optional) + group-aware split + QA")
@@ -163,7 +163,7 @@ def run_preprocess(args, config: Dict, run_dir):
             images_dir=training_dir / 'images',
             labels_dir=training_dir / 'labels',
             output_dir=training_dir,
-            splits=fracs, seed=seed, group_key_fn=burr_tile_group_key,
+            splits=fracs, seed=seed, group_key_fn=bur_tile_group_key,
         )
     print(f"\nDataset ready at: {training_dir}")
 
@@ -177,7 +177,7 @@ def run_preprocess(args, config: Dict, run_dir):
             split_txt=training_dir / 'train.txt',
             labels_dir=training_dir / 'labels',
             save_dir=out_dir / "qa_samples",
-            num_samples=num_samples, seed=seed, class_names={0: 'Chestnut-burr'},
+            num_samples=num_samples, seed=seed, class_names={0: 'Chestnut-bur'},
         )
 
     print(f"\nPreprocess reports -> {out_dir}")
@@ -204,21 +204,21 @@ def _apply_data_root(config, data_root):
 
 def run_detection():
     parser = argparse.ArgumentParser(
-        description='YOLO Burr Detection Pipeline',
+        description='YOLO Bur Detection Pipeline',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Build the tiled training set from full_canopy/ images + polygon labels
-  python -m burr_detection.detection --mode preprocess --plot-mode subset
+  python -m bur_detection.detection --mode preprocess --plot-mode subset
 
   # Hyperparameter tuning
-  python -m burr_detection.detection --mode tune --plot-mode none
+  python -m bur_detection.detection --mode tune --plot-mode none
 
   # Full pipeline in one command (tune hands its best hparams to train)
-  python -m burr_detection.detection --mode preprocess,tune,train,inference --plot-mode subset
+  python -m bur_detection.detection --mode preprocess,tune,train,inference --plot-mode subset
 
   # Point at your own dataset (overrides the sample paths)
-  python -m burr_detection.detection --mode preprocess,tune,train,inference `
+  python -m bur_detection.detection --mode preprocess,tune,train,inference `
       --data-root "C:/path/to/your/dataset" --plot-mode subset
         """
     )
@@ -237,7 +237,7 @@ Examples:
     parser.add_argument(
         '--config', 
         type=str, 
-        default='burr_detection/config.yml',
+        default='bur_detection/config.yml',
         help='Path to configuration YAML file'
     )
     
@@ -271,7 +271,7 @@ Examples:
         parser.error(f"invalid --mode value(s) {bad}; choose from {valid} (single or comma-separated)")
 
     # One run folder per invocation: outputs/run_<ts>/{preprocess,tune,train,inference}/
-    outputs_base = config['data'].get('outputs_dir', 'burr_detection/sample_data/training/outputs')
+    outputs_base = config['data'].get('outputs_dir', 'bur_detection/sample_data/training/outputs')
     run_dir = get_output_dir(outputs_base, "run")
     run_dir.mkdir(parents=True, exist_ok=True)
     print(f"\nRun outputs -> {run_dir}")

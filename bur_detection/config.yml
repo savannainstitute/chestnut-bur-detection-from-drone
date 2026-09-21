@@ -1,4 +1,4 @@
-# YOLO Burr Detection Configuration
+# YOLO Bur Detection Configuration
 
 training_steps:  # physical batch capped at 64 (avoids the GPU OOM/wedge); accumulate keeps effective batch
   - batch: 16
@@ -19,7 +19,7 @@ training_steps:  # physical batch capped at 64 (avoids the GPU OOM/wedge); accum
     patience: 25
   
 training_params: # best-known hparams for `--mode train`; seeds tuning trial 0 only if ray_tune.warm_start: true (off below)
-  - model_size: burr_detection/model_cfgs/yolo11m-p2.yaml
+  - model_size: bur_detection/model_cfgs/yolo11m-p2.yaml
     optimizer: SGD
     lr0: 0.00372977
     lrf: 0.0326850
@@ -45,7 +45,7 @@ score_weights:
 
 # Fixed architecture knobs for the small/dense-object experiment (not tuned).
 warmstart: true   # for P2 (.yaml) model archs: load the matching pretrained .pt into the backbone before fine-tuning
-tal_topk: 13      # TAL assigner top-k (ultralytics default 10) -- more candidate positives per GT for dense small burrs
+tal_topk: 13      # TAL assigner top-k (ultralytics default 10) -- more candidate positives per GT for dense small burs
 
 # Progressive-step LR scaling:
 #   scaled_lr = min( min(lr0, max_lr0) * (eff_batch / ref)^power , max_scaled_lr )
@@ -67,7 +67,7 @@ analysis:
 # momentum railed at its floor and hsv_h/hsv_s at their ceilings; the rest converged tight.
 tuning_space:
   model_size: ["yolov8m-p2.yaml", "yolov8l-p2.yaml",
-               "burr_detection/model_cfgs/yolo11m-p2.yaml", "burr_detection/model_cfgs/yolo11l-p2.yaml"]
+               "bur_detection/model_cfgs/yolo11m-p2.yaml", "bur_detection/model_cfgs/yolo11l-p2.yaml"]
   optimizer: ["SGD"]
   lr0: {"loguniform": [0.002, 0.006]}    # converged ~0.003
   lrf: {"loguniform": [0.01, 0.05]}      # converged ~0.026
@@ -99,12 +99,12 @@ inference:
   tile_batch_size: 96       # tiles per batched predict() call
 
 data:
-  # Bundled sample (download burr_detection/sample_data from Google Drive): the cleaned
+  # Bundled sample (download bur_detection/sample_data from Google Drive): the cleaned
   # Orchard 4 tile set in training/tiled/ (ready to split + train), plus the source canopy
   # images + polygon labels in training/full_canopy/ for reference/re-tiling. Point at your
   # own dataset with `--data-root <dir>` to tile full_canopy/ via the tiler.
-  training_dir: burr_detection/sample_data/training/tiled
-  outputs_dir: burr_detection/sample_data/training/outputs
+  training_dir: bur_detection/sample_data/training/tiled
+  outputs_dir: bur_detection/sample_data/training/outputs
   image_selections: image_selection/sample_data/outputs/best_image_selections.json
   # Tiling source for --mode preprocess; null = split the pre-made tiles in training_dir.
   # --data-root sets these to <root>/full_canopy/{images,labels,canopy}.
@@ -115,11 +115,11 @@ data:
     tile_size: 224          # match inference CanopyTiler
     overlap: 0.2
     min_canopy_frac: 0.15   # drop mostly-masked-out (background) tiles
-    bg_keep_ratio: 0.3      # fraction of burr-free canopy tiles kept as negatives
-    dedup_iou: 0.8          # drop burr boxes overlapping this much (double-annotations)
+    bg_keep_ratio: 0.3      # fraction of bur-free canopy tiles kept as negatives
+    dedup_iou: 0.8          # drop bur boxes overlapping this much (double-annotations)
 
 # Train/val/test split. The group key function is supplied in code
-# (burr_tile_group_key); these control the fractions and seed.
+# (bur_tile_group_key); these control the fractions and seed.
 split:
   fracs: [0.7, 0.2, 0.1]
   seed: 666

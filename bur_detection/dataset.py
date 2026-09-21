@@ -1,5 +1,5 @@
 """
-Preprocessing utilities for YOLO burr detection
+Preprocessing utilities for YOLO bur detection
 Handles dataset preparation, image tiling, and aggregating tree-level detections
 """
 import csv
@@ -13,17 +13,17 @@ from PIL import Image, ImageDraw, ImageOps
 from typing import List, Tuple, Dict, Callable, Optional, Sequence
 import yaml
 
-from burr_detection.utils import set_seed
+from bur_detection.utils import set_seed
 
 
-_BURR_TILE_GROUP_RE = re.compile(r"^(.*)_\d+_\d+$")
+_BUR_TILE_GROUP_RE = re.compile(r"^(.*)_\d+_\d+$")
 
 
-def burr_tile_group_key(path) -> str:
+def bur_tile_group_key(path) -> str:
     """Group key for tiles named '<source>_<x>_<y>': strip the trailing two offset fields so
     sibling tiles from one source canopy share a key. Falls back to the full stem."""
     stem = Path(path).stem
-    m = _BURR_TILE_GROUP_RE.match(stem)
+    m = _BUR_TILE_GROUP_RE.match(stem)
     return m.group(1) if m else stem
 
 
@@ -86,7 +86,7 @@ def _group_balanced_split(image_files, labels_dir, group_key_fn,
     if len(fg_groups) >= 3:
         min_fg["test"] = 1
 
-    # Meet the minimum with the smallest groups, so burr-dense trees stay for the main pass.
+    # Meet the minimum with the smallest groups, so bur-dense trees stay for the main pass.
     for split_key in ["test", "val", "train"]:
         while state[split_key]["fg_groups"] < min_fg[split_key] and fg_groups:
             smallest_i = min(range(len(fg_groups)), key=lambda i: fg_groups[i]["annotations"])
@@ -183,14 +183,14 @@ def prepare_dataset_splits(images_dir: Path, labels_dir: Path, output_dir: Path,
     for filename, files in split_files.items():
         with open(output_dir / filename, 'w') as f:
             for file_path in files:
-                rel_path = file_path  # relative to burr_detection/
+                rel_path = file_path  # relative to bur_detection/
                 f.write(f"{rel_path.as_posix()}\n")
     
     dataset_yaml = {
         "train": "train.txt",
         "val": "val.txt",
         "test": "test.txt",
-        "names": {0: "Chestnut-burr"}
+        "names": {0: "Chestnut-bur"}
     }
     with open(output_dir / "dataset.yml", "w") as f:
         yaml.dump(dataset_yaml, f)
@@ -300,7 +300,7 @@ class CanopyTiler:
     def reconstruct_detections_core(self, tile_detections: List[Dict],
                                     tile_info: List[Dict]) -> List[Dict]:
         """Combine tile predictions to full-image coords, keeping only detections whose box
-        center falls in each tile's non-overlapping core, so seam-straddling burrs aren't
+        center falls in each tile's non-overlapping core, so seam-straddling burs aren't
         double-counted. The core insets by half the overlap, except on image-boundary sides."""
         margin = (self.tile_size - self.stride) / 2.0
         all_detections = []
@@ -365,7 +365,7 @@ def _dedup_boxes(boxes, iou_thresh):
 
     Conservative de-duplication of obvious double-annotations: at a high threshold
     (e.g. 0.8) only near-identical boxes are removed, never genuinely distinct
-    (touching) burrs. Returns the kept boxes.
+    (touching) burs. Returns the kept boxes.
     """
     if not iou_thresh or iou_thresh >= 1.0 or len(boxes) < 2:
         return boxes
@@ -394,12 +394,12 @@ def create_tiled_dataset(images_dir, labels_dir, output_dir, canopy_dir=None,
                          min_canopy_frac: float = 0.15, min_edge_keep_frac: float = 0.35,
                          bg_keep_ratio: float = 0.3, dedup_iou: float = 0.8,
                          seed: int = 666) -> Dict:
-    """Tile full canopy images + polygon burr labels into a YOLO detection dataset (geometry
+    """Tile full canopy images + polygon bur labels into a YOLO detection dataset (geometry
     matches the inference CanopyTiler), then write a group-aware split. Returns a stats dict.
 
     Per image: optionally crop+mask to its canopy polygon, tile at tile_size/overlap, and clip
-    burr bboxes to each tile. Filtering drops mostly-background tiles (< min_canopy_frac), tiny
-    edge fragments (< min_edge_keep_frac of the burr), and all but bg_keep_ratio of burr-free
+    bur bboxes to each tile. Filtering drops mostly-background tiles (< min_canopy_frac), tiny
+    edge fragments (< min_edge_keep_frac of the bur), and all but bg_keep_ratio of bur-free
     tiles. canopy_dir (optional) supplies YOLO-segment canopy polygons for masking.
     """
     images_dir, labels_dir, output_dir = Path(images_dir), Path(labels_dir), Path(output_dir)
@@ -427,16 +427,16 @@ def create_tiled_dataset(images_dir, labels_dir, output_dir, canopy_dir=None,
             full_w, full_h = im.size
             full_arr = np.array(im)
 
-        # Burr bboxes in full-image pixel coords (from the polygon labels).
-        burrs = []
+        # Bur bboxes in full-image pixel coords (from the polygon labels).
+        burs = []
         lbl = labels_dir / f"{stem}.txt"
         if lbl.exists():
             for line in lbl.read_text().splitlines():
                 p = line.split()
                 if len(p) >= 7:
-                    burrs.append(_polygon_label_to_bbox(p, full_w, full_h))
+                    burs.append(_polygon_label_to_bbox(p, full_w, full_h))
 
-        # Crop + mask to the canopy polygon (offsets needed to translate burr boxes).
+        # Crop + mask to the canopy polygon (offsets needed to translate bur boxes).
         off_x = off_y = 0
         canopy_poly = _largest_polygon_px(canopy_dir / f"{stem}.txt", full_w, full_h) if canopy_dir else None
         if canopy_poly:
@@ -446,7 +446,7 @@ def create_tiled_dataset(images_dir, labels_dir, output_dir, canopy_dir=None,
             canopy_arr = tiler.crop_canopy_from_polygon(img_path, canopy_poly)
         else:
             canopy_arr = full_arr
-        burrs = [(x1 - off_x, y1 - off_y, x2 - off_x, y2 - off_y) for (x1, y1, x2, y2) in burrs]
+        burs = [(x1 - off_x, y1 - off_y, x2 - off_x, y2 - off_y) for (x1, y1, x2, y2) in burs]
 
         tiles, info = tiler.tile_image(canopy_arr)
         for tile, meta in zip(tiles, info):
@@ -461,7 +461,7 @@ def create_tiled_dataset(images_dir, labels_dir, output_dir, canopy_dir=None,
                 continue
 
             tile_boxes = []
-            for (bx1, by1, bx2, by2) in burrs:
+            for (bx1, by1, bx2, by2) in burs:
                 ix1, iy1 = max(bx1, tx), max(by1, ty)
                 ix2, iy2 = min(bx2, tx + tile_size), min(by2, ty + tile_size)
                 iw, ih = ix2 - ix1, iy2 - iy1
@@ -493,7 +493,7 @@ def create_tiled_dataset(images_dir, labels_dir, output_dir, canopy_dir=None,
             stats['boxes'] += len(lines)
 
     counts = prepare_dataset_splits(out_images, out_labels, output_dir,
-                                    seed=seed, group_key_fn=burr_tile_group_key)
+                                    seed=seed, group_key_fn=bur_tile_group_key)
     summary: dict[str, object] = dict(stats)
     summary['split'] = counts
     print(f"\nTiler: generated {stats['generated']}, kept {stats['kept']} "

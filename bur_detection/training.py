@@ -17,7 +17,7 @@ from typing import cast
 import torch
 from ultralytics import YOLO
 
-from burr_detection.utils import (SmoothedValue, MetricLogger, set_seed, evaluate_test_set,
+from bur_detection.utils import (SmoothedValue, MetricLogger, set_seed, evaluate_test_set,
                                   plot_ground_truth_vs_predictions, get_output_dir,
                                   compute_composite_objective, pick_device)
 
@@ -327,7 +327,7 @@ class YOLOTrainer:
                 scale=config.get("scale", 0.5),
                 shear=config.get("shear", 0),
                 perspective=config.get("perspective", 0),
-                mosaic=config.get("mosaic", 0.0),  # off -- shrinks small burrs + stitches unnatural canopy composites
+                mosaic=config.get("mosaic", 0.0),  # off -- shrinks small burs + stitches unnatural canopy composites
                 mixup=config.get("mixup", 0),
                 copy_paste=config.get("copy_paste", 0),
                 flipud=config.get("flipud", 0.5),  # vertical flip on -- nadir imagery has no canonical "up" (like fliplr)

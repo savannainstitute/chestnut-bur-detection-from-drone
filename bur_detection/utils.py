@@ -582,7 +582,7 @@ def plot_ground_truth_vs_predictions(predictions, labels_dir, original_images_di
             
             ax.imshow(img)
             ax.axis('off')
-            ax.set_title(f'Detections: {len(detections)} burrs | Avg Confidence: {avg_conf:.3f}', 
+            ax.set_title(f'Detections: {len(detections)} burs | Avg Confidence: {avg_conf:.3f}', 
                         fontsize=16, weight='bold')
             
             for det in detections:

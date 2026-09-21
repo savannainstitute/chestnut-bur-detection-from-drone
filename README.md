@@ -1,17 +1,17 @@
-# chestnut-burr-detection-from-drone
+# chestnut-bur-detection-from-drone
 
-Pipeline for estimating chestnut tree burr yield from drone imagery.
+Pipeline for estimating chestnut tree bur yield from drone imagery.
 
 ---
 
 ## Overview
 
-This repository implements an end-to-end pipeline for estimating chestnut (*Castanea* spp.) burr yield at the individual-tree level using drone imagery and YOLO object detection. The workflow proceeds from raw flight data to per-tree burr counts through four sequential modules:
+This repository implements an end-to-end pipeline for estimating chestnut (*Castanea* spp.) bur yield at the individual-tree level using drone imagery and YOLO object detection. The workflow proceeds from raw flight data to per-tree bur counts through four sequential modules:
 
 1. **Flight Reconstruction** — process raw drone images into georeferenced 3D products (DSM, DTM, CHM, orthomosaic) using Agisoft Metashape
 2. **Canopy Segmentation** — delineate individual tree canopies from the Canopy Height Model using marker-controlled watershed segmentation
 3. **Image Selection** — back-project each canopy polygon onto the raw drone image collection and select the highest-quality image per tree
-4. **Burr Detection** — detect and count burrs in each canopy image using YOLO; includes training, hyperparameter tuning, and inference modes
+4. **Bur Detection** — detect and count burs in each canopy image using YOLO; includes training, hyperparameter tuning, and inference modes
 
 ```
 Raw drone images
@@ -26,7 +26,7 @@ Raw drone images
 [Image Selection]  ──►  Best drone image per canopy (JSON)
       │
       ▼
-[Burr Detection]  ──►  Per-tree burr count CSV
+[Bur Detection]  ──►  Per-tree bur count CSV
 ```
 
 ---
@@ -50,7 +50,7 @@ A complete sample dataset for one chestnut orchard flight is available on Google
 **Download (~42 GB):**  
 [Download sample data (Google Drive)](https://drive.google.com/file/d/13qJbHO3ZU8EeesVM2tbPHkUUXSIAS_aN/view?usp=sharing)
 
-The ZIP unpacks to a `chestnut_burr_sample_data/` folder containing one subfolder per module, each with its own `sample_data/`. After extracting, move each module's `sample_data/` (e.g. `chestnut_burr_sample_data/burr_detection/sample_data/`) into the matching module directory in your clone, so paths resolve as e.g., `burr_detection/sample_data/…`.
+The ZIP unpacks to a `chestnut_burr_sample_data/` folder containing one subfolder per module, each with its own `sample_data/`. After extracting, move each module's `sample_data/` into the matching module directory in your clone, so paths resolve as e.g., `bur_detection/sample_data/…`. The ZIP predates the module rename, so its `burr_detection/sample_data/` goes to `bur_detection/sample_data/`.
 
 ---
 
@@ -63,13 +63,13 @@ The ZIP unpacks to a `chestnut_burr_sample_data/` folder containing one subfolde
 3. Create and activate the conda environment. This installs Python 3.13, the
    Agisoft Metashape wheel included in the repo, and PyTorch with CUDA 13.0:
    ```powershell
-   conda env create -f burr-detection.yml
+   conda env create -f bur-detection.yml
    conda activate bur-detection
    ```
 
 4. Activate a Metashape Professional license. See [Agisoft documentation](https://agisoft.freshdesk.com/support/solutions/articles/31000153171-how-to-activate-metashape-license) for license activation instructions.
 
-Key dependencies (from `burr-detection.yml`):
+Key dependencies (from `bur-detection.yml`):
 
 | Package | Purpose |
 |---------|---------|
@@ -92,8 +92,8 @@ Key dependencies (from `burr-detection.yml`):
 ## Repository Structure
 
 ```
-chestnut-burr-detection-from-drone/
-├── burr-detection.yml                  # Conda environment
+chestnut-bur-detection-from-drone/
+├── bur-detection.yml                  # Conda environment
 ├── yolo11{n,s,m,l}.pt, yolov8{n,s,m,l}.pt  # YOLO base weights (warm-start pool for tune/train)
 │
 ├── flight_reconstruction/
@@ -118,7 +118,7 @@ chestnut-burr-detection-from-drone/
 │   └── sample_data/outputs/
 │       └── best_image_selections.json
 │
-└── burr_detection/
+└── bur_detection/
     ├── detection.py                    # Entry point: preprocess / train / tune / inference
     ├── training.py                     # Multi-step progressive YOLO training
     ├── tuning.py                       # Ray Tune + Optuna hyperparameter search
@@ -128,7 +128,7 @@ chestnut-burr-detection-from-drone/
     ├── config.yml                      # Preprocess, training, tuning, and inference config
     ├── tests/                          # CPU-only unit checks (split, objective, tiling, ...)
     └── sample_data/
-        ├── training/full_canopy/       # Source per-tree canopy images + polygon burr & canopy labels
+        ├── training/full_canopy/       # Source per-tree canopy images + polygon bur & canopy labels
         ├── training/tiled/             # YOLO detection tiles (built from full_canopy by --mode preprocess)
         ├── training/outputs/           # Training/tuning artifacts (created at runtime; not in download)
         └── inference/outputs/          # Inference artifacts (created at runtime; not in download)
@@ -363,19 +363,19 @@ python -m image_selection.canopy_to_image `
 
 ---
 
-## Step 4: Burr Detection
+## Step 4: Bur Detection
 
-**Entry point:** `burr_detection/detection.py`  
-**Config:** `burr_detection/config.yml`
+**Entry point:** `bur_detection/detection.py`  
+**Config:** `bur_detection/config.yml`
 
 Four modes are available: `preprocess`, `train`, `tune`, and `inference`. All are accessed through the same entry point:
 
 ```powershell
 conda activate bur-detection
 
-python -m burr_detection.detection `
+python -m bur_detection.detection `
     --mode <preprocess|train|tune|inference> `
-    --config "burr_detection/config.yml" `
+    --config "bur_detection/config.yml" `
     --data-root "<your dataset root>" `   # optional; overrides the sample-data paths
     --plot-mode <all|subset|none>
 ```
@@ -383,7 +383,7 @@ python -m burr_detection.detection `
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `--mode` | `inference` | `preprocess`, `train`, `tune`, or `inference` |
-| `--config` | `burr_detection/config.yml` | Path to YAML config file (the committed config points at the bundled sample data) |
+| `--config` | `bur_detection/config.yml` | Path to YAML config file (the committed config points at the bundled sample data) |
 | `--data-root` | _(none)_ | Point the pipeline at your own dataset *without editing the committed config*; derives the `tiled/`, `full_canopy/`, `outputs/` layout (see below) |
 | `--plot-mode` | `subset` | `all` (every image), `subset` (15 random), `none` |
 
@@ -394,16 +394,16 @@ python -m burr_detection.detection `
 ### Dataset Format and Preprocessing (`--mode preprocess`)
 
 `--mode preprocess` builds the training set and is the first step before `train`/`tune`. Given
-full-resolution per-tree canopy images plus **polygon** (segmentation) burr labels, it:
+full-resolution per-tree canopy images plus **polygon** (segmentation) bur labels, it:
 
 1. Crops/masks each image to its canopy polygon and tiles it into 224×224 patches (20% overlap),
-   clipping burr polygons to each tile and deriving bounding boxes; mostly-background tiles are dropped.
+   clipping bur polygons to each tile and deriving bounding boxes; mostly-background tiles are dropped.
 2. De-duplicates overlapping (double-annotated) boxes.
 3. Creates a **group-aware** train/val/test split (70/20/10) where all tiles cut from one source tree
    stay in the same split — preventing the tree-level leakage a plain per-tile shuffle would cause.
 4. Saves QA overlays so you can confirm labels align with the imagery.
 
-> **Where the data comes from:** Steps 1–3 produce the per-tree canopy *images*, and the canopy polygon comes from segmentation (Step 2) — but the **burr polygon labels are not produced by the pipeline.** You create them by hand-annotating the canopy images (e.g., in Roboflow), since the detector learns from human-drawn labels.
+> **Where the data comes from:** Steps 1–3 produce the per-tree canopy *images*, and the canopy polygon comes from segmentation (Step 2) — but the **bur polygon labels are not produced by the pipeline.** You create them by hand-annotating the canopy images (e.g., in Roboflow), since the detector learns from human-drawn labels.
 
 Expected dataset layout (produced by your annotation/export step; pass its root with `--data-root`):
 
@@ -411,13 +411,13 @@ Expected dataset layout (produced by your annotation/export step; pass its root 
 <data-root>/
 ├── full_canopy/
 │   ├── images/    # full-resolution per-tree canopy images
-│   ├── labels/    # YOLO-segment polygon burr labels (one .txt per image)
+│   ├── labels/    # YOLO-segment polygon bur labels (one .txt per image)
 │   └── canopy/    # YOLO-segment canopy polygon per image (used for masking)
 └── tiled/                           # written by --mode preprocess (the training set)
 ```
 
 ```powershell
-python -m burr_detection.detection --mode preprocess `
+python -m bur_detection.detection --mode preprocess `
     --data-root "<data-root>" --plot-mode subset
 ```
 
@@ -431,7 +431,7 @@ You can also chain the whole pipeline in one command — `tune` hands its winnin
 directly to `train`:
 
 ```powershell
-python -m burr_detection.detection --mode preprocess,tune,train,inference `
+python -m bur_detection.detection --mode preprocess,tune,train,inference `
     --data-root "<data-root>" --plot-mode subset
 ```
 
@@ -453,12 +453,12 @@ Per-step physical batch, gradient accumulation, max-epochs, and patience are set
 The learning rate is scaled per step as `lr = min(lr0, max_lr0) × (effective_batch / 64)^0.5`, capped at `max_scaled_lr`. Progressive unfreezing is **architecture-aware** (read from the model YAML) and re-applied on the live trainer at the start of each step, so the curriculum actually takes effect. The best-epoch optimizer state is **carried across each step boundary** (momentum is preserved through the unfreeze), and the learning rate is **warmed up** over a few epochs at each transition. The best checkpoint across all steps/epochs is selected by a **composite objective** (validation loss + F1 + mAP50) and saved as `best_model_weights.pt`.
 
 ```powershell
-python -m burr_detection.detection --mode train `
-    --config "burr_detection/config.yml" `
+python -m bur_detection.detection --mode train `
+    --config "bur_detection/config.yml" `
     --plot-mode subset
 ```
 
-**Outputs** — written to `burr_detection/sample_data/training/outputs/training_<timestamp>/`:
+**Outputs** — written to `bur_detection/sample_data/training/outputs/training_<timestamp>/`:
 
 | File | Description |
 |------|-------------|
@@ -470,9 +470,9 @@ python -m burr_detection.detection --mode train `
 
 **Performance**
 
-The production detector is **YOLO11m with a P2 (stride-4) head** for small, dense burrs, warm-started from pretrained YOLO11m weights. The tuning search covers YOLOv8 and YOLO11 **medium and large** P2 variants — see `tuning_space.model_size` in `config.yml`.
+The production detector is **YOLO11m with a P2 (stride-4) head** for small, dense burs, warm-started from pretrained YOLO11m weights. The tuning search covers YOLOv8 and YOLO11 **medium and large** P2 variants — see `tuning_space.model_size` in `config.yml`.
 
-Production model — YOLO11m-P2 (progressive 4-step) on the held-out test split (404 tiles at 224 px, 5,114 burrs), ~1.3 ms/img inference on an RTX 4090:
+Production model — YOLO11m-P2 (progressive 4-step) on the held-out test split (404 tiles at 224 px, 5,114 burs), ~1.3 ms/img inference on an RTX 4090:
 
 | Precision | Recall | F1 | mAP50 | mAP50-95 |
 |-----------|--------|----|-------|----------|
@@ -506,16 +506,16 @@ Searches the hyperparameter space using **Ray Tune with Optuna (Bayesian) search
 - The `training_params` entry in the config is used as a warm-start point for Optuna
 
 ```powershell
-python -m burr_detection.detection --mode tune `
-    --config "burr_detection/config.yml" `
+python -m bur_detection.detection --mode tune `
+    --config "bur_detection/config.yml" `
     --plot-mode subset
 ```
 
-**Tuning space** (from `burr_detection/config.yml`):
+**Tuning space** (from `bur_detection/config.yml`):
 
 The search covers `model_size` (the four models × baseline/P2 stride variants), `optimizer`, learning rate (`lr0`/`lrf`), `momentum`, `weight_decay`, the localization loss gains (`box_gain`/`dfl_gain`), and augmentation (`hsv_*`, `degrees`, `scale`, `flipud`). See `tuning_space` in `config.yml` for the exact set and ranges.
 
-**Outputs** — written to `burr_detection/sample_data/training/outputs/tuning_<timestamp>/`:
+**Outputs** — written to `bur_detection/sample_data/training/outputs/tuning_<timestamp>/`:
 
 | File | Description |
 |------|-------------|
@@ -534,21 +534,21 @@ Tuning checkpoints per-epoch to `<trial_dir>/checkpoint_<epoch>/` (model weights
 
 ### 4c. Inference Mode
 
-Detects burrs on unlabeled canopy images using a tile-and-reconstruct strategy:
+Detects burs on unlabeled canopy images using a tile-and-reconstruct strategy:
 
 For each tree in `best_image_selections.json`:
 1. Crop the canopy polygon region from the full drone image (mask outside region to black)
 2. Tile the cropped canopy into 224×224 patches with 20% overlap (stride = 179 px); skip all-black tiles
 3. Run YOLO inference on the tiles in batches (`inference.tile_batch_size`), confidence threshold 0.5 by default
-4. Reconstruct tile-space detections to full canopy coordinates, keeping only detections whose box **center** lies in each tile's non-overlapping **core** region — so a burr in the overlap seam is counted once, not double-counted
+4. Reconstruct tile-space detections to full canopy coordinates, keeping only detections whose box **center** lies in each tile's non-overlapping **core** region — so a bur in the overlap seam is counted once, not double-counted
 5. Apply a light global NMS (`inference.global_nms_iou`, default 0.3) to resolve any residual cross-tile duplicates
 6. Aggregate per tree: total detections, average confidence, bounding box coordinates
 
 The model is **auto-detected** from the most recent `training_*/` or `tuning_*/` output directory when `inference.model_path` is `null`. To use a specific model, set `inference.model_path` to an explicit path.
 
 ```powershell
-python -m burr_detection.detection --mode inference `
-    --config "burr_detection/config.yml" `
+python -m bur_detection.detection --mode inference `
+    --config "bur_detection/config.yml" `
     --plot-mode subset
 ```
 
@@ -566,12 +566,12 @@ data:
   image_selections: image_selection/sample_data/outputs/best_image_selections.json
 ```
 
-**Outputs** — written to `burr_detection/sample_data/inference/outputs/inference_<timestamp>/`:
+**Outputs** — written to `bur_detection/sample_data/inference/outputs/inference_<timestamp>/`:
 
 | File | Description |
 |------|-------------|
-| `tree_burr_detections.csv` | Per tree: `tree_id`, `image_path`, `total_detections`, `avg_confidence`, `detection_coords` |
-| `detection_summary.txt` | Summary stats: mean/min/max burrs per tree, overall confidence, model info |
+| `tree_bur_detections.csv` | Per tree: `tree_id`, `image_path`, `total_detections`, `avg_confidence`, `detection_coords` |
+| `detection_summary.txt` | Summary stats: mean/min/max burs per tree, overall confidence, model info |
 | `preprocessed_trees/` | Cropped canopy images (for visual verification of masking) |
 | `prediction_plots/` | Detection visualizations with bounding boxes |
 
@@ -580,8 +580,8 @@ data:
 ## Limitations and Known Assumptions
 
 - **Platform:** Windows-only due to the Agisoft Metashape Python API (Steps 1 and 3)
-- **Drone hardware:** DJI Mavic 3M (baseline) and DJI Zenmuse P1 (`p1` profile); RTK accuracy parsing and gimbal pitch metadata depend on DJI XMP tags. Burr-detection tile size (224 px) was set at M3M GSD
-- **Single class:** The detector is configured for one object class (burr); multi-class use requires label and config changes
+- **Drone hardware:** DJI Mavic 3M (baseline) and DJI Zenmuse P1 (`p1` profile); RTK accuracy parsing and gimbal pitch metadata depend on DJI XMP tags. Bur-detection tile size (224 px) was set at M3M GSD
+- **Single class:** The detector is configured for one object class (bur); multi-class use requires label and config changes
 - **Canopy segmentation:** One-to-one mapping between markers and canopies; touching or overlapping crowns are not automatically split without separate markers per crown and, as such, outputs usually require manual cleanup. ## TODO: instance segmentation from point cloud
 - **Image selection:** Does not account for occlusion of a canopy by adjacent trees or branches
 - **Tiling:** Tile size (224×224) and overlap (20%) match across preprocessing and inference; both are configurable via the `data.tiling` and `inference` keys in `config.yml`

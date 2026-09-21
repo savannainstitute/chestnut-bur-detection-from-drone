@@ -1,4 +1,4 @@
-/burr_detection/sample_data
+/bur_detection/sample_data
 /canopy_segmentation/sample_data
 /flight_reconstruction/sample_data
 *.pyc
@@ -7,7 +7,7 @@
 .vscode/settings.json
 /runs
 *.log
-/burr_detection/tests
+/bur_detection/tests
 /.claude/
 CLAUDE.md
 CLAUDE.local.md

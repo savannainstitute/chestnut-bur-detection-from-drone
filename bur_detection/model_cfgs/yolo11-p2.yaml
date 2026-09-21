@@ -1,5 +1,5 @@
 # YOLO11 with a P2/4 detection head (P2/4 - P5/32 outputs) — hand-authored small-object variant
-# for chestnut-burr detection. Mirrors ultralytics yolov8-p2.yaml's head pattern, adapted to YOLO11
+# for chestnut-bur detection. Mirrors ultralytics yolov8-p2.yaml's head pattern, adapted to YOLO11
 # (C3k2 blocks + the C2PSA at backbone layer 10). Detect(P2,P3,P4,P5) -> strides [4,8,16,32].
 # Validate after any change: YOLO("...yolo11s-p2.yaml").model.stride must be [4,8,16,32].
 

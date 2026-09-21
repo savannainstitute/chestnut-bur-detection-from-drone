@@ -26,8 +26,8 @@ from ray.tune.search import ConcurrencyLimiter
 from ray.air import session
 from ultralytics import YOLO
 
-from burr_detection.training import YOLOTrainer
-from burr_detection.utils import (set_seed, is_notebook, convert_tuning_space, get_output_dir,
+from bur_detection.training import YOLOTrainer
+from bur_detection.utils import (set_seed, is_notebook, convert_tuning_space, get_output_dir,
                                   evaluate_test_set, plot_ground_truth_vs_predictions,
                                   compute_composite_objective, analyze_ray_results, pick_device)
 
@@ -111,7 +111,7 @@ class YOLOTuner:
         score_weights=None,
         analysis_enabled=True,
         analysis_top_n=10,
-        outputs_dir="burr_detection/sample_data/training/outputs",
+        outputs_dir="bur_detection/sample_data/training/outputs",
         warmstart=False,
         tal_topk=None,
         step_transition_warmup_epochs=10.0,
