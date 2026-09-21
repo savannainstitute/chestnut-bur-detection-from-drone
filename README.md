@@ -56,45 +56,36 @@ The ZIP unpacks to a `chestnut_burr_sample_data/` folder containing one subfolde
 
 ## Environment Setup
 
-1. **Install [Miniconda](https://docs.conda.io/en/latest/miniconda.html)**
+1. Install [Miniconda](https://docs.conda.io/en/latest/miniconda.html).
 
-2. **Clone this repository**
+2. Clone this repository.
 
-3. **Create and activate the conda environment:**
+3. Create and activate the conda environment. This installs Python 3.13, the
+   Agisoft Metashape wheel included in the repo, and PyTorch with CUDA 13.0:
    ```powershell
    conda env create -f burr-detection.yml
-   conda activate burr-detection
+   conda activate bur-detection
    ```
 
-4. **Install Agisoft Metashape** (Windows wheel included in the repo):
-   ```powershell
-   pip install flight_reconstruction/metashape-2.3.1-cp39.cp310.cp311.cp312.cp313-none-win_amd64.whl
-   ```
+4. Activate a Metashape Professional license. See [Agisoft documentation](https://agisoft.freshdesk.com/support/solutions/articles/31000153171-how-to-activate-metashape-license) for license activation instructions.
 
-5. **Activate a Metashape Professional license.** See [Agisoft documentation](https://agisoft.freshdesk.com/support/solutions/articles/31000153171-how-to-activate-metashape-license) for license activation instructions.
+Key dependencies (from `burr-detection.yml`):
 
-6. **Install CUDA-enabled PyTorch** (required for GPU-accelerated training and inference):
-   ```powershell
-   pip install -U torch torchvision --index-url https://download.pytorch.org/whl/cu130
-   ```
-   This installs PyTorch with CUDA 13.0 support. Adjust the index URL for your CUDA version if needed.
-
-**Key dependencies** (from `burr-detection.yml`):
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| python | 3.11 | — |
-| gdal | 3.10.3 | Geospatial I/O |
-| geopandas | 1.1.1 | Vector geometry |
-| rasterio | 1.4.3 | Raster I/O |
-| scikit-image | 0.25.2 | Image processing, watershed |
-| shapely | 2.1.2 | Polygon operations |
-| psutil | 7.0.0 | Memory estimation (Metashape subdivision) |
-| easyidp | latest | 3D back-projection, Metashape wrapper |
-| ultralytics | latest | YOLO training and inference |
-| ray[tune] | latest | Distributed hyperparameter tuning |
-| optuna | latest | Bayesian hyperparameter search |
-| pyexiv2 | latest | XMP metadata reading (DJI drone tags) |
+| Package | Purpose |
+|---------|---------|
+| Metashape | Flight reconstruction; its wheel supports Python up to 3.13 |
+| gdal | Geospatial I/O |
+| geopandas | Vector geometry |
+| rasterio | Raster I/O |
+| scikit-image | Image processing, watershed |
+| shapely | Polygon operations |
+| psutil | Memory estimation (Metashape subdivision) |
+| easyidp | 3D back-projection, Metashape wrapper |
+| torch, torchvision | CUDA 13.0 training and inference |
+| ultralytics | YOLO training and inference |
+| ray[tune] | Distributed hyperparameter tuning |
+| optuna | Bayesian hyperparameter search |
+| pyexiv2 | XMP metadata reading (DJI drone tags) |
 
 ---
 
@@ -190,7 +181,7 @@ All written to `<folder>/outputs/`:
 ### Usage
 
 ```powershell
-conda activate burr-detection
+conda activate bur-detection
 $env:METASHAPE_LICENSE_KEY="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"
 
 python -m flight_reconstruction.reconstruction `
@@ -274,7 +265,7 @@ Written to `--outdir`:
 ### Usage
 
 ```powershell
-conda activate burr-detection
+conda activate bur-detection
 
 python -m canopy_segmentation.segmentation `
     --chm "flight_reconstruction/sample_data/20230823_Orchard4/outputs/20230823_Orchard4_chm.tif" `
@@ -353,7 +344,7 @@ Polygon coordinates are in **image pixel space** (not geographic coordinates).
 ### Usage
 
 ```powershell
-conda activate burr-detection
+conda activate bur-detection
 
 python -m image_selection.canopy_to_image `
     --canopy_shapefile "canopy_segmentation/sample_data/outputs/20230823_Orchard4_Canopies.shp" `
@@ -380,7 +371,7 @@ python -m image_selection.canopy_to_image `
 Four modes are available: `preprocess`, `train`, `tune`, and `inference`. All are accessed through the same entry point:
 
 ```powershell
-conda activate burr-detection
+conda activate bur-detection
 
 python -m burr_detection.detection `
     --mode <preprocess|train|tune|inference> `

@@ -1,19 +1,31 @@
-name: burr-detection
+name: bur-detection
 channels:
   - conda-forge
 dependencies:
-  - gdal=3.10.3
-  - geopandas=1.1.1
-  - python=3.11.14
-  - pip=25.3
-  - psutil=7.0.0
-  - rasterio=1.4.3
-  - scikit-image=0.25.2
-  - shapely=2.1.2
+  # The Metashape wheel in flight_reconstruction/ supports Python 3.9 to 3.13.
+  - python=3.13
+  - pip
   - pip:
-    - easyidp
-    - optuna
-    - pyexiv2
-    - pyyaml
-    - "ray[tune]"
-    - ultralytics
+      - --extra-index-url https://download.pytorch.org/whl/cu130
+      - https://github.com/cgohlke/geospatial-wheels/releases/download/v2026.8.20/gdal-3.13.3-cp313-cp313-win_amd64.whl
+      - ./flight_reconstruction/metashape-2.3.1-cp39.cp310.cp311.cp312.cp313-none-win_amd64.whl
+      - easyidp
+      - geopandas
+      - ipykernel
+      - matplotlib
+      - numpy
+      - optuna
+      - pandas
+      - pillow
+      - psutil
+      - pyexiv2
+      - pyyaml
+      - ray[tune]
+      - rasterio
+      - scikit-image
+      - scipy
+      - shapely
+      - torch
+      - torchvision
+      - tqdm
+      - ultralytics
