@@ -50,7 +50,7 @@ A complete sample dataset for one chestnut orchard flight is available on Google
 **Download (~42 GB):**  
 [Download sample data (Google Drive)](https://drive.google.com/file/d/13qJbHO3ZU8EeesVM2tbPHkUUXSIAS_aN/view?usp=sharing)
 
-The ZIP unpacks to a `chestnut_burr_sample_data/` folder containing one subfolder per module, each with its own `sample_data/`. After extracting, move each module's `sample_data/` into the matching module directory in your clone, so paths resolve as e.g., `bur_detection/sample_data/…`. The ZIP predates the module rename, so its `burr_detection/sample_data/` goes to `bur_detection/sample_data/`.
+The ZIP unpacks to a `chestnut_bur_sample_data/` folder containing one subfolder per module, each with its own `sample_data/`. After extracting, move each module's `sample_data/` (e.g. `chestnut_bur_sample_data/bur_detection/sample_data/`) into the matching module directory in your clone, so paths resolve as e.g., `bur_detection/sample_data/…`.
 
 ---
 
