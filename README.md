@@ -8,10 +8,10 @@ Pipeline for estimating chestnut tree bur yield from drone imagery.
 
 This repository implements an end-to-end pipeline for estimating chestnut (*Castanea* spp.) bur yield at the individual-tree level using drone imagery and YOLO object detection. The workflow proceeds from raw flight data to per-tree bur counts through four sequential modules:
 
-1. **Flight Reconstruction** — process raw drone images into georeferenced 3D products (DSM, DTM, CHM, orthomosaic) using Agisoft Metashape
-2. **Canopy Segmentation** — delineate individual tree canopies from the Canopy Height Model using marker-controlled watershed segmentation
-3. **Image Selection** — back-project each canopy polygon onto the raw drone image collection and select the highest-quality image per tree
-4. **Bur Detection** — detect and count burs in each canopy image using YOLO; includes training, hyperparameter tuning, and inference modes
+1. Flight Reconstruction: process raw drone images into georeferenced 3D products (DSM, DTM, CHM, orthomosaic) using Agisoft Metashape
+2. Canopy Segmentation: delineate individual tree canopies from the Canopy Height Model using marker-controlled watershed segmentation
+3. Image Selection: back-project each canopy polygon onto the raw drone image collection and select the highest-quality image per tree
+4. Bur Detection: detect and count burs in each canopy image using YOLO; includes training, hyperparameter tuning, and inference modes
 
 ```
 Raw drone images
@@ -35,11 +35,11 @@ Raw drone images
 
 The full pipeline was developed and tested on Windows with the following hardware:
 
-- **OS:** Windows (Metashape Python API is Windows-only)
-- **GPU:** 8 GB VRAM minimum; 16+ GB recommended for Metashape depth map generation and YOLO training
-- **RAM:** 128 GB recommended (Metashape depth map generation is memory-intensive; the reconstruction script monitors available RAM and can subdivide tasks automatically)
-- **CPU:** 24-core recommended
-- **Disk:** ~256 GB free space per orchard dataset (raw images + Metashape project files)
+- OS: Windows (Metashape Python API is Windows-only)
+- GPU: 8 GB VRAM minimum; 16+ GB recommended for Metashape depth map generation and YOLO training
+- RAM: 128 GB recommended (Metashape depth map generation is memory-intensive; the reconstruction script monitors available RAM and can subdivide tasks automatically)
+- CPU: 24-core recommended
+- Disk: ~256 GB free space per orchard dataset (raw images + Metashape project files)
 
 ---
 
@@ -47,7 +47,7 @@ The full pipeline was developed and tested on Windows with the following hardwar
 
 A complete sample dataset for one chestnut orchard flight is available on Google Drive.
 
-**Download (~42 GB):**  
+Download (~42 GB):  
 [Download sample data (Google Drive)](https://drive.google.com/file/d/13qJbHO3ZU8EeesVM2tbPHkUUXSIAS_aN/view?usp=sharing)
 
 The ZIP unpacks to a `chestnut_bur_sample_data/` folder containing one subfolder per module, each with its own `sample_data/`. After extracting, move each module's `sample_data/` (e.g. `chestnut_bur_sample_data/bur_detection/sample_data/`) into the matching module directory in your clone, so paths resolve as e.g., `bur_detection/sample_data/…`.
@@ -137,8 +137,8 @@ chestnut-bur-detection-from-drone/
 
 ## Step 1: Flight Reconstruction
 
-**Script:** `flight_reconstruction/reconstruction.py`  
-**Config:** `flight_reconstruction/config.yml`
+Script: `flight_reconstruction/reconstruction.py`  
+Config: `flight_reconstruction/config.yml`
 
 ### What It Does
 
@@ -152,7 +152,7 @@ Automates Agisoft Metashape to generate georeferenced 3D products from raw drone
 6. Produces an orthorectified mosaic with mosaic blending and ghosting filter
 7. Exports all products as GeoTIFF/LAS with UTM projection auto-detected from the first image's GPS coordinates
 
-Each processing step checks whether it already completed before running; the pipeline is **resumable** from any point by re-running the same command. GPU selection automatically restricts to devices with ≥8 GB VRAM and disables CPU during GPU-intensive steps to reduce memory fragmentation.
+Each processing step checks whether it already completed before running; the pipeline is resumable from any point by re-running the same command. GPU selection automatically restricts to devices with ≥8 GB VRAM and disables CPU during GPU-intensive steps to reduce memory fragmentation.
 
 ### Inputs
 
@@ -231,15 +231,15 @@ python -m flight_reconstruction.reconstruction `
 
 ## Step 2: Canopy Segmentation
 
-**Script:** `canopy_segmentation/segmentation.py`
+Script: `canopy_segmentation/segmentation.py`
 
 ### What It Does
 
-Segments individual tree canopies from the CHM using **marker-controlled watershed segmentation** with an adaptive proximity penalty:
+Segments individual tree canopies from the CHM using marker-controlled watershed segmentation with an adaptive proximity penalty:
 
 1. Loads CHM raster and tree marker points (manually digitized from imagery or collected with RTK GNSS)
 2. Refines each marker to the local CHM maximum within a buffer radius (corrects imprecise field placement)
-3. Constructs a watershed cost surface from: inverted CHM height, CHM gradient magnitude, and a proximity penalty that scales each tree's boundary distance by its height relative to neighboring trees — preventing over-segmentation in dense stands
+3. Constructs a watershed cost surface from: inverted CHM height, CHM gradient magnitude, and a proximity penalty that scales each tree's boundary distance by its height relative to neighboring trees, preventing over-segmentation in dense stands
 4. Runs scikit-image watershed with each refined marker as a labeled seed
 5. Removes segments smaller than 5 m² and removes any segments that clip the orchard boundary polygon by more than 0.5 m
 6. Exports canopy polygons and refined treetop points as shapefiles
@@ -276,19 +276,19 @@ python -m canopy_segmentation.segmentation `
     --extent "canopy_segmentation/sample_data/inputs/20230823_Orchard4_boundary.shp"
 ```
 
-**Arguments:**
+Arguments:
 
 | Argument | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `--chm` | yes | — | Path to CHM GeoTIFF |
-| `--tree-markers` | yes | — | Tree marker point shapefile |
-| `--outdir` | yes | — | Output directory |
+| `--chm` | yes | none | Path to CHM GeoTIFF |
+| `--tree-markers` | yes | none | Tree marker point shapefile |
+| `--outdir` | yes | none | Output directory |
 | `--min-height` | no | `1.75` | Minimum CHM height (m) for the segmentation mask |
 | `--buffer-size` | no | `1.0` | Buffer radius (m) for local maxima refinement |
 | `--id-column` | no | first non-geometry column | Column name for tree IDs in marker file |
-| `--extent` | no | — | Boundary polygon shapefile |
+| `--extent` | no | none | Boundary polygon shapefile |
 
-*Tree markers can be manually digitized using leaf-off imagery or collected with an RTK GNSS receiver in the field.*
+Tree markers can be manually digitized using leaf-off imagery or collected with an RTK GNSS receiver in the field.
 
 ### Limitations
 
@@ -300,7 +300,7 @@ python -m canopy_segmentation.segmentation `
 
 ## Step 3: Image Selection
 
-**Script:** `image_selection/canopy_to_image.py`
+Script: `image_selection/canopy_to_image.py`
 
 ### What It Does
 
@@ -309,10 +309,10 @@ Selects the highest-quality raw drone image for each canopy polygon using Metash
 1. Back-projects each canopy polygon onto all candidate raw images using the Metashape camera model (accounts for lens distortion, orientation, and 3D position)
 2. Retains the 3 nearest images whose camera position is within 10 m (ground XY distance) of the canopy centroid
 3. Scores each candidate image:
-   - **Exposure:** mean pixel value in projected region; filtered to 0.15–0.85 (discards over/underexposed images)
-   - **Gimbal pitch:** read from DJI XMP tag; images near nadir (~−90° ± 5°) are preferred
-   - **Sharpness:** variance of the Laplacian over the projected canopy region
-   - **Contrast:** standard deviation of pixel values in the projected region
+   - Exposure: mean pixel value in projected region; filtered to 0.15–0.85 (discards over/underexposed images)
+   - Gimbal pitch: read from DJI XMP tag; images near nadir (~−90° ± 5°) are preferred
+   - Sharpness: variance of the Laplacian over the projected canopy region
+   - Contrast: standard deviation of pixel values in the projected region
 4. Selects the image with highest sharpness (within 85% of the per-canopy maximum), breaking ties by contrast
 
 ### Inputs
@@ -327,7 +327,7 @@ Selects the highest-quality raw drone image for each canopy polygon using Metash
 
 ### Output
 
-`best_image_selections.json` — maps each tree ID to its selected image and projected canopy polygon:
+`best_image_selections.json` maps each tree ID to its selected image and projected canopy polygon:
 
 ```json
 {
@@ -338,7 +338,7 @@ Selects the highest-quality raw drone image for each canopy polygon using Metash
 }
 ```
 
-Polygon coordinates are in **image pixel space** (not geographic coordinates).
+Polygon coordinates are in image pixel space (not geographic coordinates).
 
 ### Usage
 
@@ -364,8 +364,8 @@ python -m image_selection.canopy_to_image `
 
 ## Step 4: Bur Detection
 
-**Entry point:** `bur_detection/detection.py`  
-**Config:** `bur_detection/config.yml`
+Entry point: `bur_detection/detection.py`  
+Config: `bur_detection/config.yml`
 
 Four modes are available: `preprocess`, `train`, `tune`, and `inference`. All are accessed through the same entry point:
 
@@ -383,28 +383,28 @@ python -m bur_detection.detection `
 |----------|---------|-------------|
 | `--mode` | `inference` | `preprocess`, `train`, `tune`, or `inference` |
 | `--config` | `bur_detection/config.yml` | Path to YAML config file (the committed config points at the bundled sample data) |
-| `--data-root` | _(none)_ | Point the pipeline at your own dataset *without editing the committed config*; derives the `tiled/`, `full_canopy/`, `outputs/` layout (see below) |
+| `--data-root` | (none) | Point the pipeline at your own dataset without editing the committed config; derives the `tiled/`, `full_canopy/`, `outputs/` layout (see below) |
 | `--plot-mode` | `subset` | `all` (every image), `subset` (15 random), `none` |
 
 Each invocation writes to one run folder, `<outputs_dir>/run_<timestamp>/`, with a subfolder per mode it ran: `preprocess/`, `tune/`, `train/`, `inference/`. `outputs_dir` is `data.outputs_dir` in `config.yml` (`bur_detection/sample_data/training/outputs`), or `<data-root>/outputs` with `--data-root`.
 
-**Typical workflow:** `preprocess` (build or split the tiled training set) → `tune` (search hyperparameters) → copy the best hyperparameters into `training_params` → `train` (final model) → `inference`. No trained weights ship with the sample data (withheld pending publication), so run `preprocess → tune → train` to produce a model; `inference` can then run standalone.
+Typical workflow: `preprocess` (build or split the tiled training set) → `tune` (search hyperparameters) → copy the best hyperparameters into `training_params` → `train` (final model) → `inference`. No trained weights ship with the sample data (withheld pending publication), so run `preprocess → tune → train` to produce a model; `inference` can then run standalone.
 
 ---
 
 ### Dataset Format and Preprocessing (`--mode preprocess`)
 
 `--mode preprocess` builds the training set and is the first step before `train`/`tune`. Given
-full-resolution per-tree canopy images plus **polygon** (segmentation) bur labels, it:
+full-resolution per-tree canopy images plus polygon (segmentation) bur labels, it:
 
 1. Crops/masks each image to its canopy polygon and tiles it into 224×224 patches (20% overlap),
    clipping bur polygons to each tile and deriving bounding boxes; mostly-background tiles are dropped.
 2. De-duplicates overlapping (double-annotated) boxes.
-3. Creates a **group-aware** train/val/test split (70/20/10) where all tiles cut from one source tree
-   stay in the same split — preventing the tree-level leakage a plain per-tile shuffle would cause.
+3. Creates a group-aware train/val/test split (70/20/10) where all tiles cut from one source tree
+   stay in the same split, preventing the tree-level leakage a plain per-tile shuffle would cause.
 4. Saves QA overlays so you can confirm labels align with the imagery.
 
-> **Where the data comes from:** Steps 1–3 produce the per-tree canopy *images*, and the canopy polygon comes from segmentation (Step 2) — but the **bur polygon labels are not produced by the pipeline.** You create them by hand-annotating the canopy images (e.g., in Roboflow), since the detector learns from human-drawn labels.
+> Where the data comes from: Steps 1–3 produce the per-tree canopy images, and the canopy polygon comes from segmentation (Step 2), but the bur polygon labels are not produced by the pipeline. You create them by hand-annotating the canopy images (e.g., in Roboflow), since the detector learns from human-drawn labels.
 
 Expected dataset layout (produced by your annotation/export step; pass its root with `--data-root`):
 
@@ -424,11 +424,11 @@ python -m bur_detection.detection --mode preprocess `
 
 The bundled sample ships ready-to-train tiles in `…/training/tiled/`, plus the source images and
 polygon labels in `…/training/full_canopy/` for reference. With the committed config, `--mode
-preprocess` only builds the group-aware train/val/test split over those tiles — it does not re-tile.
+preprocess` only builds the group-aware train/val/test split over those tiles; it does not re-tile.
 To tile your own data, pass a `full_canopy/` layout via `--data-root <root>`. The full dataset is
 distributed via Google Drive, not committed to git.
 
-You can also chain the whole pipeline in one command — `tune` hands its winning hyperparameters
+You can also chain the whole pipeline in one command; `tune` hands its winning hyperparameters
 directly to `train`:
 
 ```powershell
@@ -440,7 +440,7 @@ python -m bur_detection.detection --mode preprocess,tune,train,inference `
 
 ### 4a. Training Mode
 
-Trains a YOLO model using **multi-step progressive gradient accumulation**, which simulates large effective batch sizes without exceeding GPU memory:
+Trains a YOLO model using multi-step progressive gradient accumulation, which simulates large effective batch sizes without exceeding GPU memory:
 
 | Step | Layers Unfrozen |
 |------|-----------------|
@@ -451,7 +451,7 @@ Trains a YOLO model using **multi-step progressive gradient accumulation**, whic
 
 Per-step physical batch, gradient accumulation, max-epochs, and patience are set in `config.yml` (`training_steps`); physical batch is capped and accumulation reaches the large effective batches.
 
-The learning rate is scaled per step as `lr = min(lr0, max_lr0) × (effective_batch / 64)^0.5`, capped at `max_scaled_lr`. Progressive unfreezing is **architecture-aware** (read from the model YAML) and re-applied on the live trainer at the start of each step, so the curriculum actually takes effect. The best-epoch optimizer state is **carried across each step boundary** (momentum is preserved through the unfreeze), and the learning rate is **warmed up** over a few epochs at each transition. The best checkpoint across all steps/epochs is selected by the composite objective described under Tuning Mode and saved as `best_model_weights.pt`.
+The learning rate is scaled per step as `lr = min(lr0, max_lr0) × (effective_batch / 64)^0.5`, capped at `max_scaled_lr`. Progressive unfreezing is architecture-aware (read from the model YAML) and re-applied on the live trainer at the start of each step, so the curriculum actually takes effect. The best-epoch optimizer state is carried across each step boundary (momentum is preserved through the unfreeze), and the learning rate is warmed up over `step_transition_warmup_epochs` (10) epochs at each transition. The best checkpoint across all steps/epochs is selected by the composite objective described under Tuning Mode and saved as `best_model_weights.pt`.
 
 ```powershell
 python -m bur_detection.detection --mode train `
@@ -469,27 +469,27 @@ Outputs, written to `<outputs_dir>/run_<timestamp>/train/`:
 | `train_step{1-4}/` | Per-step YOLO run directories (weights, results.csv, plots) |
 | `prediction_plots/` | Side-by-side ground truth vs. prediction visualizations |
 
-**Performance**
+#### Performance
 
-The production detector is **YOLO11m with a P2 (stride-4) head** for small, dense burs, warm-started from pretrained YOLO11m weights. The tuning search covers YOLOv8 and YOLO11 **medium and large** P2 variants — see `tuning_space.model_size` in `config.yml`.
+The production detector is YOLO11m with a P2 (stride-4) head for small, dense burs, warm-started from pretrained YOLO11m weights. The tuning search covers YOLOv8 and YOLO11 medium and large P2 variants; see `tuning_space.model_size` in `config.yml`.
 
-Production model — YOLO11m-P2 (progressive 4-step) on the held-out test split (404 tiles at 224 px, 5,114 burs), ~1.3 ms/img inference on an RTX 4090:
+Production model, YOLO11m-P2 (progressive 4-step) on the held-out test split (404 tiles at 224 px, 5,114 burs), ~1.3 ms/img inference on an RTX 4090:
 
 | Precision | Recall | F1 | mAP50 | mAP50-95 |
 |-----------|--------|----|-------|----------|
 | 0.878 | 0.864 | 0.871 | 0.935 | 0.642 |
 
-*Trained on the full multi-orchard set (proprietary, not distributed here). The bundled single-orchard sample is much smaller, so metrics from a sample-only run will be lower and vary noticeably run-to-run.*
+Trained on the full multi-orchard set (proprietary, not distributed here). The bundled single-orchard sample is much smaller, so metrics from a sample-only run will be lower and vary noticeably run-to-run.
 
-**Key `training_params` in `config.yml`** (the production model's tuned hyperparameters):
+Key `training_params` in `config.yml` (the production model's tuned hyperparameters):
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | `model_size` | `yolo11m-p2.yaml` | YOLO11m + P2 head (warm-started from `yolo11m.pt`) |
-| `optimizer` | `SGD` | — |
+| `optimizer` | `SGD` | none |
 | `lr0` / `lrf` | `0.0037` / `0.0327` | Initial LR; final-LR fraction (decays toward `lrf·lr0`) |
 | `momentum` | `0.943` | SGD momentum |
-| `weight_decay` | `0.00835` | — |
+| `weight_decay` | `0.00835` | none |
 | `box_gain` / `cls_gain` / `dfl_gain` | `4.43` / `0.56` / `0.80` | Loss gains (box/cls pinned during tuning; dfl tuned) |
 | `hsv_h` / `hsv_s` / `hsv_v` | `0.0070` / `0.491` / `0.156` | HSV augmentation |
 | `degrees` / `scale` / `flipud` | `49.9` / `0.386` / `0.081` | Geometric augmentation (nadir imagery) |
@@ -498,7 +498,7 @@ Production model — YOLO11m-P2 (progressive 4-step) on the held-out test split 
 
 ### 4b. Tuning Mode
 
-Searches the hyperparameter space using **Ray Tune with Optuna (Bayesian) search** and ASHA early stopping:
+Searches the hyperparameter space using Ray Tune with Optuna (Bayesian) search and ASHA early stopping:
 
 - Trial count and concurrency are set in `config.yml` (`ray_tune.num_samples`, `max_concurrent_trials`)
 - ASHA scheduler prunes underperforming trials (reduction factor 3), with a grace period equal to the first training step's `patience`
@@ -514,7 +514,7 @@ python -m bur_detection.detection --mode tune `
     --plot-mode subset
 ```
 
-**Tuning space** (from `bur_detection/config.yml`):
+Tuning space (from `bur_detection/config.yml`):
 
 The search covers `model_size` (YOLOv8m, YOLOv8l, YOLO11m, and YOLO11l, all with the P2 head), learning rate (`lr0`/`lrf`), `momentum`, `weight_decay`, the DFL loss gain (`dfl_gain`), and augmentation (`hsv_*`, `degrees`, `scale`, `flipud`). `optimizer` is fixed to SGD, and `box_gain` and `cls_gain` are pinned to single values because they change only the gain-scaled val_loss, not F1 or mAP50. See `tuning_space` in `config.yml` for the exact set and ranges.
 
@@ -529,7 +529,7 @@ Outputs, written to `<outputs_dir>/run_<timestamp>/tune/`:
 | `test_results.csv` | Test set evaluation of best model |
 | `prediction_plots/` | Prediction visualizations |
 
-Each tuning run also appends one row to `model_registry.csv` at the `outputs/` root — a cross-run index of every winner (run, model, composite objective, key metrics, and paths to its weights + config). Sort by `objective` (lower is better) to find the best run; promotion into `config.yml` (`training_params`) stays a manual copy.
+Each tuning run also appends one row to `model_registry.csv` at the `outputs/` root: a cross-run index of every winner (run, model, composite objective, key metrics, and paths to its weights + config). Sort by `objective` (lower is better) to find the best run; promotion into `config.yml` (`training_params`) stays a manual copy.
 
 Ray trial folders nest under the same `tune/` folder. Each trial keeps only its best-objective checkpoint, and only the top `ray_tune.keep_top_n` trials' checkpoints stay on disk; the rest are deleted as trials finish. Hyperparameter-importance and top-trial curves (`hp_importance.png`, `top_trial_curves.png`, `trial_summary.csv`) are written to the Ray experiment directory at the end of the run.
 
@@ -543,7 +543,7 @@ For each tree in `best_image_selections.json`:
 1. Crop the canopy polygon region from the full drone image (mask outside region to black)
 2. Tile the cropped canopy into 224×224 patches with 20% overlap (stride = 179 px); skip all-black tiles
 3. Run YOLO inference on the tiles in batches (`inference.tile_batch_size`), confidence threshold 0.5 by default
-4. Reconstruct tile-space detections to full canopy coordinates, keeping only detections whose box **center** lies in each tile's non-overlapping **core** region — so a bur in the overlap seam is counted once, not double-counted
+4. Reconstruct tile-space detections to full canopy coordinates, keeping only detections whose box center lies in each tile's non-overlapping core region, so a bur in the overlap seam is counted once, not double-counted
 5. Apply a light global NMS (`inference.global_nms_iou`, default 0.3) to resolve any residual cross-tile duplicates
 6. Aggregate per tree: total detections, average confidence, bounding box coordinates
 
@@ -555,7 +555,7 @@ python -m bur_detection.detection --mode inference `
     --plot-mode subset
 ```
 
-**Inference config keys:**
+Inference config keys:
 
 ```yaml
 inference:
@@ -582,13 +582,13 @@ Outputs, written to `<outputs_dir>/run_<timestamp>/inference/`:
 
 ## Limitations and Known Assumptions
 
-- **Platform:** Windows-only due to the Agisoft Metashape Python API (Steps 1 and 3)
-- **Drone hardware:** DJI Mavic 3M (baseline) and DJI Zenmuse P1 (`p1` profile); RTK accuracy parsing and gimbal pitch metadata depend on DJI XMP tags. Bur-detection tile size (224 px) was set at M3M GSD
-- **Single class:** The detector is configured for one object class (bur); multi-class use requires label and config changes
-- **Canopy segmentation:** One-to-one mapping between markers and canopies; touching or overlapping crowns are not automatically split without separate markers per crown and, as such, outputs usually require manual cleanup. ## TODO: instance segmentation from point cloud
-- **Image selection:** Does not account for occlusion of a canopy by adjacent trees or branches
-- **Tiling:** Tile size (224×224) and overlap (20%) match across preprocessing and inference; both are configurable via the `data.tiling` and `inference` keys in `config.yml`
-- **Metashape license:** Agisoft Metashape Professional is required for Steps 1 and 3; the included wheel is version 2.3.1
+- Platform: Windows-only due to the Agisoft Metashape Python API (Steps 1 and 3)
+- Drone hardware: DJI Mavic 3M (baseline) and DJI Zenmuse P1 (`p1` profile); RTK accuracy parsing and gimbal pitch metadata depend on DJI XMP tags. Bur-detection tile size (224 px) was set at M3M GSD
+- Single class: The detector is configured for one object class (bur); multi-class use requires label and config changes
+- Canopy segmentation: One-to-one mapping between markers and canopies; touching or overlapping crowns are not automatically split without separate markers per crown and, as such, outputs usually require manual cleanup. ## TODO: instance segmentation from point cloud
+- Image selection: Does not account for occlusion of a canopy by adjacent trees or branches
+- Tiling: Tile size (224×224) and overlap (20%) match across preprocessing and inference; both are configurable via the `data.tiling` and `inference` keys in `config.yml`
+- Metashape license: Agisoft Metashape Professional is required for Steps 1 and 3; the included wheel is version 2.3.1
 
 ---
 
