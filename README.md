@@ -126,12 +126,11 @@ chestnut-bur-detection-from-drone/
     ├── dataset.py                      # Group-aware splitting, canopy tiling, polygon tiler
     ├── utils.py                        # NMS, evaluation, plotting, metrics
     ├── config.yml                      # Preprocess, training, tuning, and inference config
-    ├── tests/                          # CPU-only unit checks (split, objective, tiling, ...)
+    ├── model_cfgs/                     # YOLO11 P2-head model YAML
     └── sample_data/
         ├── training/full_canopy/       # Source per-tree canopy images + polygon bur & canopy labels
         ├── training/tiled/             # YOLO detection tiles (built from full_canopy by --mode preprocess)
-        ├── training/outputs/           # Training/tuning artifacts (created at runtime; not in download)
-        └── inference/outputs/          # Inference artifacts (created at runtime; not in download)
+        └── training/outputs/           # One run_<timestamp>/ per invocation (created at runtime; not in download)
 ```
 
 ---
@@ -387,6 +386,8 @@ python -m bur_detection.detection `
 | `--data-root` | _(none)_ | Point the pipeline at your own dataset *without editing the committed config*; derives the `tiled/`, `full_canopy/`, `outputs/` layout (see below) |
 | `--plot-mode` | `subset` | `all` (every image), `subset` (15 random), `none` |
 
+Each invocation writes to one run folder, `<outputs_dir>/run_<timestamp>/`, with a subfolder per mode it ran: `preprocess/`, `tune/`, `train/`, `inference/`. `outputs_dir` is `data.outputs_dir` in `config.yml` (`bur_detection/sample_data/training/outputs`), or `<data-root>/outputs` with `--data-root`.
+
 **Typical workflow:** `preprocess` (build or split the tiled training set) → `tune` (search hyperparameters) → copy the best hyperparameters into `training_params` → `train` (final model) → `inference`. No trained weights ship with the sample data (withheld pending publication), so run `preprocess → tune → train` to produce a model; `inference` can then run standalone.
 
 ---
@@ -450,7 +451,7 @@ Trains a YOLO model using **multi-step progressive gradient accumulation**, whic
 
 Per-step physical batch, gradient accumulation, max-epochs, and patience are set in `config.yml` (`training_steps`); physical batch is capped and accumulation reaches the large effective batches.
 
-The learning rate is scaled per step as `lr = min(lr0, max_lr0) × (effective_batch / 64)^0.5`, capped at `max_scaled_lr`. Progressive unfreezing is **architecture-aware** (read from the model YAML) and re-applied on the live trainer at the start of each step, so the curriculum actually takes effect. The best-epoch optimizer state is **carried across each step boundary** (momentum is preserved through the unfreeze), and the learning rate is **warmed up** over a few epochs at each transition. The best checkpoint across all steps/epochs is selected by a **composite objective** (validation loss + F1 + mAP50) and saved as `best_model_weights.pt`.
+The learning rate is scaled per step as `lr = min(lr0, max_lr0) × (effective_batch / 64)^0.5`, capped at `max_scaled_lr`. Progressive unfreezing is **architecture-aware** (read from the model YAML) and re-applied on the live trainer at the start of each step, so the curriculum actually takes effect. The best-epoch optimizer state is **carried across each step boundary** (momentum is preserved through the unfreeze), and the learning rate is **warmed up** over a few epochs at each transition. The best checkpoint across all steps/epochs is selected by the composite objective described under Tuning Mode and saved as `best_model_weights.pt`.
 
 ```powershell
 python -m bur_detection.detection --mode train `
@@ -458,7 +459,7 @@ python -m bur_detection.detection --mode train `
     --plot-mode subset
 ```
 
-**Outputs** — written to `bur_detection/sample_data/training/outputs/training_<timestamp>/`:
+Outputs, written to `<outputs_dir>/run_<timestamp>/train/`:
 
 | File | Description |
 |------|-------------|
@@ -500,10 +501,12 @@ Production model — YOLO11m-P2 (progressive 4-step) on the held-out test split 
 Searches the hyperparameter space using **Ray Tune with Optuna (Bayesian) search** and ASHA early stopping:
 
 - Trial count and concurrency are set in `config.yml` (`ray_tune.num_samples`, `max_concurrent_trials`)
-- ASHA scheduler prunes underperforming trials, with a grace window across each progressive-unfreeze step transition so a recovering trial isn't pruned on the transition spike
-- Optimization metric (scheduling **and** best-model selection): a **composite objective** = validation loss + (1−F1) + (1−mAP50), chosen so that tuning the box/cls/dfl loss gains does not confound the objective
-- NaN/inf losses are replaced with a sentinel value (a degenerate trial is pruned, not crashed)
-- The `training_params` entry in the config is used as a warm-start point for Optuna
+- ASHA scheduler prunes underperforming trials (reduction factor 3), with a grace period equal to the first training step's `patience`
+- Optimization metric, used for both scheduling and best-model selection: a composite objective, lower is better, = `loss`·val_loss + `f1`·(1−F1)·10 + `map50`·(1−mAP50)·10, with the weights from `score_weights` in `config.yml`. The ×10 puts the quality terms on the scale of a typical val_loss. Raw val_loss is not used because tuning the box/cls/dfl loss gains would confound it
+- Trials rank by their running best objective (`objective_best`), so a trial's best epoch counts, not its last
+- A degenerate trial (non-finite or non-positive val_loss, or F1 and mAP50 both near zero) gets a sentinel objective of 1e6 and is pruned, not crashed
+- Failed trials are not retried (`max_failures=0`), because the optimizer handoff between steps is not checkpointed
+- The `training_params` entry seeds Optuna's first trial only when `ray_tune.warm_start` is `true` (off in the committed config)
 
 ```powershell
 python -m bur_detection.detection --mode tune `
@@ -513,9 +516,9 @@ python -m bur_detection.detection --mode tune `
 
 **Tuning space** (from `bur_detection/config.yml`):
 
-The search covers `model_size` (the four models × baseline/P2 stride variants), `optimizer`, learning rate (`lr0`/`lrf`), `momentum`, `weight_decay`, the localization loss gains (`box_gain`/`dfl_gain`), and augmentation (`hsv_*`, `degrees`, `scale`, `flipud`). See `tuning_space` in `config.yml` for the exact set and ranges.
+The search covers `model_size` (YOLOv8m, YOLOv8l, YOLO11m, and YOLO11l, all with the P2 head), learning rate (`lr0`/`lrf`), `momentum`, `weight_decay`, the DFL loss gain (`dfl_gain`), and augmentation (`hsv_*`, `degrees`, `scale`, `flipud`). `optimizer` is fixed to SGD, and `box_gain` and `cls_gain` are pinned to single values because they change only the gain-scaled val_loss, not F1 or mAP50. See `tuning_space` in `config.yml` for the exact set and ranges.
 
-**Outputs** — written to `bur_detection/sample_data/training/outputs/tuning_<timestamp>/`:
+Outputs, written to `<outputs_dir>/run_<timestamp>/tune/`:
 
 | File | Description |
 |------|-------------|
@@ -528,7 +531,7 @@ The search covers `model_size` (the four models × baseline/P2 stride variants),
 
 Each tuning run also appends one row to `model_registry.csv` at the `outputs/` root — a cross-run index of every winner (run, model, composite objective, key metrics, and paths to its weights + config). Sort by `objective` (lower is better) to find the best run; promotion into `config.yml` (`training_params`) stays a manual copy.
 
-Tuning checkpoints per-epoch to `<trial_dir>/checkpoint_<epoch>/` (model weights + state), allowing trials to resume after interruption. Hyperparameter-importance and top-trial curves (`hp_importance.png`, `top_trial_curves.png`, `trial_summary.csv`) are written to the Ray experiment directory at the end of the run.
+Ray trial folders nest under the same `tune/` folder. Each trial keeps only its best-objective checkpoint, and only the top `ray_tune.keep_top_n` trials' checkpoints stay on disk; the rest are deleted as trials finish. Hyperparameter-importance and top-trial curves (`hp_importance.png`, `top_trial_curves.png`, `trial_summary.csv`) are written to the Ray experiment directory at the end of the run.
 
 ---
 
@@ -544,7 +547,7 @@ For each tree in `best_image_selections.json`:
 5. Apply a light global NMS (`inference.global_nms_iou`, default 0.3) to resolve any residual cross-tile duplicates
 6. Aggregate per tree: total detections, average confidence, bounding box coordinates
 
-The model is **auto-detected** from the most recent `training_*/` or `tuning_*/` output directory when `inference.model_path` is `null`. To use a specific model, set `inference.model_path` to an explicit path.
+When `inference.model_path` is `null`, the model is auto-detected: the newest `run_*/` under `outputs_dir` is searched first, its `train/` before its `tune/`, for a `best_*.pt` file. Older flat `tuning_*/` and `training_*/` folders are searched after that. To use a specific model, set `inference.model_path` to an explicit path.
 
 ```powershell
 python -m bur_detection.detection --mode inference `
@@ -566,7 +569,7 @@ data:
   image_selections: image_selection/sample_data/outputs/best_image_selections.json
 ```
 
-**Outputs** — written to `bur_detection/sample_data/inference/outputs/inference_<timestamp>/`:
+Outputs, written to `<outputs_dir>/run_<timestamp>/inference/`:
 
 | File | Description |
 |------|-------------|
