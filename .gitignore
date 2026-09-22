@@ -7,7 +7,6 @@
 .vscode/settings.json
 /runs
 *.log
-/bur_detection/tests
 /.claude/
 CLAUDE.md
 CLAUDE.local.md
