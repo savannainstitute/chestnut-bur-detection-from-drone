@@ -1,3 +1,5 @@
+"""Segment tree canopies from a CHM raster via marker-controlled watershed."""
+
 import os
 import argparse
 
@@ -13,6 +15,7 @@ from skimage.filters import gaussian
 import geopandas as gpd
 from shapely.geometry import shape, Point
 
+
 class TreeCanopySegmentation:
     """
     Proximity-based segmentation of tree canopies from a CHM raster.
@@ -24,28 +27,48 @@ class TreeCanopySegmentation:
         4. Save results as shapefiles (canopy polygons and refined tree tops)
     """
 
-    def __init__(self, chm_path, min_height, min_area_m2=5.0, min_hole_area_m2=1.25):
+    def __init__(
+        self, chm_path, min_height, min_area_m2=5.0, min_hole_area_m2=1.25
+    ):
         """
         Initialize segmentation parameters and state.
 
         Args:
             chm_path (str): Path to input CHM raster file.
-            min_height (float): Minimum CHM height (meters) for segmentation mask.
-            min_area_m2 (float): Minimum canopy area (m^2); smaller segments are removed.
-            min_hole_area_m2 (float): Holes within a segment smaller than this (m^2)
-                are filled. Independent of min_area_m2.
+            min_height (float): Minimum CHM height (meters) for
+                segmentation mask.
+            min_area_m2 (float): Minimum canopy area (m^2); smaller
+                segments are removed.
+            min_hole_area_m2 (float): Holes within a segment smaller
+                than this (m^2) are filled. Independent of min_area_m2.
 
         Returns:
             None
         """
-        self.penalty_strength = 0.1             # lower if smaller trees take up too much space
-        self.gradient_weight = 0.4              # higher to follow steep slopes more closely
-        self.watershed_compactness = 1e-4       # higher for more regular shapes
-        self.height_factor_scale = 0.2          # higher places boundaries further out for taller trees
-        self.min_height = min_height            # minimum height in meters for segmentation mask
-        self.min_area_m2 = min_area_m2          # minimum canopy area in m^2; smaller segments removed
-        self.min_hole_area_m2 = min_hole_area_m2  # holes smaller than this (m^2) are filled; decoupled from min_area
-        self.surface_smooth_sigma = 0.1         # higher for smoother segmentation surface
+        self.penalty_strength = (
+            0.1  # lower if smaller trees take up too much space
+        )
+        self.gradient_weight = (
+            0.4  # higher to follow steep slopes more closely
+        )
+        self.watershed_compactness = 1e-4  # higher for more regular shapes
+        self.height_factor_scale = (
+            0.2  # higher places boundaries further out for taller trees
+        )
+        self.min_height = (
+            min_height  # minimum height in meters for segmentation mask
+        )
+        self.min_area_m2 = (
+            min_area_m2  # minimum canopy area in m^2; smaller segments removed
+        )
+        self.min_hole_area_m2 = (
+            # holes smaller than this (m^2) are filled; decoupled from
+            # min_area
+            min_hole_area_m2
+        )
+        self.surface_smooth_sigma = (
+            0.1  # higher for smoother segmentation surface
+        )
 
         self.chm_path = chm_path
         self.chm_data = None
@@ -56,7 +79,8 @@ class TreeCanopySegmentation:
         self.resolution_m_per_pixel = None
         self.extent_gdf = None
 
-        self.marker_id_to_original_id = {}  # Maps marker label to original tree ID
+        # Maps marker label to original tree ID
+        self.marker_id_to_original_id = {}
 
     def load_chm(self, extent_shapefile=None):
         """
@@ -76,14 +100,18 @@ class TreeCanopySegmentation:
                         gdf = gdf.to_crs(src.crs)
                     self.extent_gdf = gdf
                     geoms = [geom for geom in gdf.geometry]
-                    arr, out_transform = rio_mask.mask(src, geoms, crop=True, nodata=np.nan)
+                    arr, out_transform = rio_mask.mask(
+                        src, geoms, crop=True, nodata=np.nan
+                    )
                     profile = src.profile.copy()
-                    profile.update({
-                        "height": arr.shape[1],
-                        "width": arr.shape[2],
-                        "transform": out_transform,
-                        "nodata": np.nan
-                    })
+                    profile.update(
+                        {
+                            "height": arr.shape[1],
+                            "width": arr.shape[2],
+                            "transform": out_transform,
+                            "nodata": np.nan,
+                        }
+                    )
                     data = arr[0].astype(np.float64)
                     self.chm_profile = profile
                 else:
@@ -103,7 +131,10 @@ class TreeCanopySegmentation:
                 px_h = abs(transform.e)
                 self.resolution_m_per_pixel = float((px_w + px_h) / 2.0)
 
-                print(f"Loaded CHM: shape={self.chm_data.shape}, resolution={self.resolution_m_per_pixel:.4f} m/px")
+                print(
+                    f"Loaded CHM: shape={self.chm_data.shape}, "
+                    f"resolution={self.resolution_m_per_pixel:.4f} m/px"
+                )
                 return True
 
         except Exception as e:
@@ -122,14 +153,20 @@ class TreeCanopySegmentation:
         """
         return int(round(distance_meters / self.resolution_m_per_pixel))
 
-    def load_tree_markers_from_shapefile(self, shapefile_path, buffer_meters, id_column=None):
+    def load_tree_markers_from_shapefile(
+        self, shapefile_path, buffer_meters, id_column=None
+    ):
         """
-        Refine tree top points to local maxima in the CHM and create marker image.
+        Refine tree top points to local maxima in the CHM.
+
+        Creates a marker image from the refined tree top locations.
 
         Args:
             shapefile_path (str): Path to input marker shapefile.
-            buffer_meters (float): Buffer radius in meters for local maxima search.
-            id_column (str, optional): Name of the column containing original tree IDs.
+            buffer_meters (float): Buffer radius in meters for local
+                maxima search.
+            id_column (str, optional): Name of the column containing
+                original tree IDs.
 
         Returns:
             tuple or None: (rows, cols) of refined points, or None if failed.
@@ -141,9 +178,13 @@ class TreeCanopySegmentation:
 
             # Determine which column to use for original IDs
             if id_column is None:
-                id_column = next((col for col in gdf.columns if col != "geometry"), None)
+                id_column = next(
+                    (col for col in gdf.columns if col != "geometry"), None
+                )
             if id_column is None:
-                raise ValueError("No suitable ID column found in marker shapefile.")
+                raise ValueError(
+                    "No suitable ID column found in marker shapefile."
+                )
 
             transform = self.chm_profile["transform"]
             refined = []
@@ -155,9 +196,13 @@ class TreeCanopySegmentation:
             for idx, row in gdf.iterrows():
                 pt = row.geometry
                 r, c = rowcol(transform, pt.x, pt.y)
-                r = int(r); c = int(c)
+                r = int(r)
+                c = int(c)
 
-                if not (0 <= r < self.chm_data.shape[0] and 0 <= c < self.chm_data.shape[1]):
+                if not (
+                    0 <= r < self.chm_data.shape[0]
+                    and 0 <= c < self.chm_data.shape[1]
+                ):
                     skipped += 1
                     continue
 
@@ -205,12 +250,13 @@ class TreeCanopySegmentation:
 
     def watershed_segment(self):
         """
-        Segment the CHM into tree crowns using adaptive marker-controlled watershed.
+        Segment the CHM into tree crowns using adaptive watershed.
 
-        Uses tree markers as seeds and computes a proximity-based penalty surface
-        that adapts to local tree spacing and height. Efficiently caches pairwise
-        distances and path checks to avoid redundant work. Cleans up small or
-        spurious segments after segmentation.
+        Uses tree markers as seeds and computes a proximity-based
+        penalty surface that adapts to local tree spacing and height.
+        Efficiently caches pairwise distances and path checks to avoid
+        redundant work. Cleans up small or spurious segments after
+        segmentation.
 
         Returns:
             bool: True if segmentation succeeded, False otherwise.
@@ -223,34 +269,55 @@ class TreeCanopySegmentation:
         mask = np.isfinite(self.chm_data) & (self.chm_data > threshold)
 
         if not np.any(mask):
-            print("No valid CHM pixels to segment (check minimum height threshold).")
+            print(
+                "No valid CHM pixels to segment (check minimum height "
+                "threshold)."
+            )
             return False
 
         marker_ids = np.unique(self.tree_markers)
         marker_ids = marker_ids[marker_ids > 0]
 
-        marker_positions = [np.where(self.tree_markers == marker_id) for marker_id in marker_ids]
-        marker_positions = [(pos[0][0], pos[1][0]) for pos in marker_positions if len(pos[0]) > 0]
+        marker_positions = [
+            np.where(self.tree_markers == marker_id)
+            for marker_id in marker_ids
+        ]
+        marker_positions = [
+            (pos[0][0], pos[1][0])
+            for pos in marker_positions
+            if len(pos[0]) > 0
+        ]
         marker_heights = [self.original_chm[r, c] for r, c in marker_positions]
         marker_positions = np.array(marker_positions)
         marker_heights = np.array(marker_heights)
 
-        smoothed_chm = gaussian(self.chm_data, sigma=self.surface_smooth_sigma, preserve_range=True)
+        smoothed_chm = gaussian(
+            self.chm_data, sigma=self.surface_smooth_sigma, preserve_range=True
+        )
 
         grad_y, grad_x = np.gradient(smoothed_chm)
         gradient_mag = np.sqrt(grad_x**2 + grad_y**2)
         gradient_mag = np.where(np.isfinite(gradient_mag), gradient_mag, 0)
-        height_range = np.nanmax(smoothed_chm) - np.nanmin(smoothed_chm[np.isfinite(smoothed_chm)])
+        height_range = np.nanmax(smoothed_chm) - np.nanmin(
+            smoothed_chm[np.isfinite(smoothed_chm)]
+        )
         proximity_penalty = np.full_like(smoothed_chm, np.inf)
 
         def path_crosses_low_height(start_r, start_c, end_r, end_c):
             from skimage.draw import line
+
             line_r, line_c = line(start_r, start_c, end_r, end_c)
             for lr, lc in zip(line_r, line_c):
-                if (0 <= lr < self.chm_data.shape[0] and 
-                    0 <= lc < self.chm_data.shape[1]):
+                if (
+                    0 <= lr < self.chm_data.shape[0]
+                    and 0 <= lc < self.chm_data.shape[1]
+                ):
                     val = self.chm_data[lr, lc]
-                    if np.isfinite(val) and self.min_height is not None and val < self.min_height:
+                    if (
+                        np.isfinite(val)
+                        and self.min_height is not None
+                        and val < self.min_height
+                    ):
                         return True
             return False
 
@@ -269,8 +336,10 @@ class TreeCanopySegmentation:
             for j in range(i + 1, num_markers):
                 if distance_matrix[i, j] <= max_search_distance:
                     crosses = path_crosses_low_height(
-                        marker_positions[i][0], marker_positions[i][1],
-                        marker_positions[j][0], marker_positions[j][1]
+                        marker_positions[i][0],
+                        marker_positions[i][1],
+                        marker_positions[j][0],
+                        marker_positions[j][1],
                     )
                     path_cross_matrix[i, j] = path_cross_matrix[j, i] = crosses
 
@@ -279,9 +348,9 @@ class TreeCanopySegmentation:
             marker_height = marker_heights[i]
 
             valid = (
-                (np.arange(num_markers) != i) &
-                (distance_matrix[i] <= max_search_distance) &
-                (~path_cross_matrix[i])
+                (np.arange(num_markers) != i)
+                & (distance_matrix[i] <= max_search_distance)
+                & (~path_cross_matrix[i])
             )
             neighbor_indices = np.where(valid)[0]
             if neighbor_indices.size > 0:
@@ -296,66 +365,112 @@ class TreeCanopySegmentation:
                 else:
                     height_ratio = marker_height / nearest_neighbor_height
 
-                height_factor = 0.8 + self.height_factor_scale * np.clip(height_ratio, 0.5, 1.5)
+                height_factor = 0.8 + self.height_factor_scale * np.clip(
+                    height_ratio, 0.5, 1.5
+                )
 
-                local_characteristic_distance = (nearest_distance / 2.0) * height_factor
+                local_characteristic_distance = (
+                    nearest_distance / 2.0
+                ) * height_factor
 
-                print(f"Tree {self.marker_id_to_original_id.get(marker_id, marker_id)}: height={marker_height:.1f}m, neighbor_dist={nearest_distance:.1f}m, "
-                      f"neighbor_height={nearest_neighbor_height:.1f}m, height_factor={height_factor:.2f}, "
-                      f"boundary_dist={local_characteristic_distance:.1f}m")
+                print(
+                    f"Tree {
+                        self.marker_id_to_original_id.get(marker_id, marker_id)
+                    }: height={marker_height:.1f}m, "
+                    f"neighbor_dist={nearest_distance:.1f}m, "
+                    f"neighbor_height={nearest_neighbor_height:.1f}m, "
+                    f"height_factor={height_factor:.2f}, "
+                    f"boundary_dist={local_characteristic_distance:.1f}m"
+                )
 
-                marker_mask = (self.tree_markers == marker_id)
-                buf_px = int(np.ceil((nearest_distance / 2.0) / self.resolution_m_per_pixel)) + 10
+                marker_mask = self.tree_markers == marker_id
+                buf_px = (
+                    int(
+                        np.ceil(
+                            (nearest_distance / 2.0)
+                            / self.resolution_m_per_pixel
+                        )
+                    )
+                    + 10
+                )
                 r, c = marker_pos
                 rmin = max(0, r - buf_px)
                 rmax = min(self.chm_data.shape[0], r + buf_px + 1)
                 cmin = max(0, c - buf_px)
                 cmax = min(self.chm_data.shape[1], c + buf_px + 1)
                 local_marker_mask = marker_mask[rmin:rmax, cmin:cmax]
-                distance_from_this_marker = ndimage.distance_transform_edt(~local_marker_mask)
-                distance_m = distance_from_this_marker * self.resolution_m_per_pixel
+                distance_from_this_marker = ndimage.distance_transform_edt(
+                    ~local_marker_mask
+                )
+                distance_m = (
+                    distance_from_this_marker * self.resolution_m_per_pixel
+                )
 
-                local_penalty = self.penalty_strength * height_range * (1 - np.exp(-distance_m / local_characteristic_distance))
+                local_penalty = (
+                    self.penalty_strength
+                    * height_range
+                    * (1 - np.exp(-distance_m / local_characteristic_distance))
+                )
 
                 proximity_penalty[rmin:rmax, cmin:cmax] = np.minimum(
                     proximity_penalty[rmin:rmax, cmin:cmax], local_penalty
                 )
             else:
-                print(f"Tree {self.marker_id_to_original_id.get(marker_id, marker_id)}: isolated, using natural watershed boundaries")
-                continue  
+                print(
+                    f"Tree {
+                        self.marker_id_to_original_id.get(marker_id, marker_id)
+                    }: isolated, using natural watershed boundaries"
+                )
+                continue
 
-        proximity_penalty = np.where(np.isinf(proximity_penalty), 
-                                     self.penalty_strength * height_range, proximity_penalty)
+        proximity_penalty = np.where(
+            np.isinf(proximity_penalty),
+            self.penalty_strength * height_range,
+            proximity_penalty,
+        )
 
         inv_height = np.where(np.isfinite(smoothed_chm), -smoothed_chm, 0.0)
-        surface = inv_height + proximity_penalty + (self.gradient_weight * gradient_mag)
+        surface = (
+            inv_height
+            + proximity_penalty
+            + (self.gradient_weight * gradient_mag)
+        )
 
         self.segments = watershed(
-            surface, 
-            self.tree_markers, 
+            surface,
+            self.tree_markers,
             connectivity=2,
             compactness=self.watershed_compactness,
-            mask=mask
+            mask=mask,
         )
 
         n_segments_before = len(np.unique(self.segments)) - 1
         min_area_m2 = self.min_area_m2
-        min_size_pixels = int(min_area_m2 / (self.resolution_m_per_pixel ** 2))
-        hole_size_pixels = int(self.min_hole_area_m2 / (self.resolution_m_per_pixel ** 2))
+        min_size_pixels = int(min_area_m2 / (self.resolution_m_per_pixel**2))
+        hole_size_pixels = int(
+            self.min_hole_area_m2 / (self.resolution_m_per_pixel**2)
+        )
 
         cleaned_segments = np.zeros_like(self.segments)
         for segment_id in np.unique(self.segments):
             if segment_id == 0:
                 continue
-            segment_mask = (self.segments == segment_id)
-            cleaned_mask = remove_small_objects(segment_mask, min_size=min_size_pixels)
-            cleaned_mask = remove_small_holes(cleaned_mask, area_threshold=hole_size_pixels)
+            segment_mask = self.segments == segment_id
+            cleaned_mask = remove_small_objects(
+                segment_mask, min_size=min_size_pixels
+            )
+            cleaned_mask = remove_small_holes(
+                cleaned_mask, area_threshold=hole_size_pixels
+            )
             cleaned_segments[cleaned_mask] = segment_id
 
         self.segments = cleaned_segments
         n_segments_after = len(np.unique(self.segments)) - 1
 
-        print(f"Adaptive watershed produced {n_segments_before} segments, cleaned to {n_segments_after} segments")
+        print(
+            f"Adaptive watershed produced {n_segments_before} segments, "
+            f"cleaned to {n_segments_after} segments"
+        )
 
         if self.extent_gdf is not None:
             self._remove_boundary_segments()
@@ -364,18 +479,20 @@ class TreeCanopySegmentation:
 
     def _remove_boundary_segments(self):
         """
-        Remove segments that overlap the raster boundary by more than a threshold.
+        Remove segments that overlap the raster boundary past a threshold.
 
         Returns:
             None
         """
         max_border_overlap_m = 0.5
-        max_border_pixels = int(max_border_overlap_m / self.resolution_m_per_pixel)
+        max_border_pixels = int(
+            max_border_overlap_m / self.resolution_m_per_pixel
+        )
         boundary_geoms = []
         for geom in self.extent_gdf.geometry:
-            if hasattr(geom, 'exterior'):
+            if hasattr(geom, "exterior"):
                 boundary_geoms.append(geom.exterior)
-            elif hasattr(geom, 'geoms'):
+            elif hasattr(geom, "geoms"):
                 for sub_geom in geom.geoms:
                     boundary_geoms.append(sub_geom.exterior)
         if not boundary_geoms:
@@ -386,13 +503,13 @@ class TreeCanopySegmentation:
             transform=self.chm_profile["transform"],
             fill=0,
             default_value=1,
-            dtype=np.uint8
+            dtype=np.uint8,
         ).astype(bool)
         segments_to_remove = []
         for seg_id in np.unique(self.segments):
             if seg_id == 0:
                 continue
-            segment_mask = (self.segments == seg_id)
+            segment_mask = self.segments == seg_id
             overlap_pixels = np.sum(segment_mask & boundary_mask)
             if overlap_pixels > max_border_pixels:
                 segments_to_remove.append(seg_id)
@@ -438,17 +555,22 @@ class TreeCanopySegmentation:
         tree_ids = self.tree_markers[marker_coords]
         points = []
         heights = []
-        original_ids = [self.marker_id_to_original_id.get(tid, tid) for tid in tree_ids]
+        original_ids = [
+            self.marker_id_to_original_id.get(tid, tid) for tid in tree_ids
+        ]
         transform = self.chm_profile["transform"]
         for r, c, _ in zip(marker_coords[0], marker_coords[1], tree_ids):
             x, y = xy(transform, int(r), int(c), offset="center")
             points.append(Point(x, y))
-            heights.append(self.original_chm[r, c] if np.isfinite(self.original_chm[r, c]) else np.nan)
-        gdf = gpd.GeoDataFrame({
-            "tree_id": original_ids,
-            "height": heights,
-            "geometry": points
-        }, crs=self.chm_profile["crs"])
+            heights.append(
+                self.original_chm[r, c]
+                if np.isfinite(self.original_chm[r, c])
+                else np.nan
+            )
+        gdf = gpd.GeoDataFrame(
+            {"tree_id": original_ids, "height": heights, "geometry": points},
+            crs=self.chm_profile["crs"],
+        )
         os.makedirs(output_dir, exist_ok=True)
         out_path = os.path.join(output_dir, f"{prefix}_Treetops.shp")
         self._remove_shapefile_if_exists(out_path)
@@ -457,7 +579,7 @@ class TreeCanopySegmentation:
 
     def save_results(self, output_dir, prefix):
         """
-        Save the segmented canopy polygons as a shapefile with shape statistics.
+        Save segmented canopy polygons as a shapefile with statistics.
 
         Args:
             output_dir (str): Output directory.
@@ -473,7 +595,9 @@ class TreeCanopySegmentation:
         polygons = []
         labels = []
         transform = self.chm_profile["transform"]
-        for geom, val in shapes(self.segments.astype(np.int32), transform=transform):
+        for geom, val in shapes(
+            self.segments.astype(np.int32), transform=transform
+        ):
             if val == 0:
                 continue
             polygons.append(shape(geom))
@@ -481,27 +605,37 @@ class TreeCanopySegmentation:
         if len(polygons) == 0:
             print("No polygons generated from segments.")
             return
-        pix_area = self.resolution_m_per_pixel ** 2
+        pix_area = self.resolution_m_per_pixel**2
         stats = []
         for lbl in labels:
             mask = self.segments == lbl
             area_m2 = np.sum(mask) * pix_area
             heights = self.original_chm[mask]
-            max_h = np.nanmax(heights) if np.any(np.isfinite(heights)) else np.nan
-            mean_h = np.nanmean(heights) if np.any(np.isfinite(heights)) else np.nan
+            max_h = (
+                np.nanmax(heights) if np.any(np.isfinite(heights)) else np.nan
+            )
+            mean_h = (
+                np.nanmean(heights) if np.any(np.isfinite(heights)) else np.nan
+            )
             stats.append((area_m2, max_h, mean_h))
-        tree_ids = [self.marker_id_to_original_id.get(lbl, lbl) for lbl in labels]
-        gdf = gpd.GeoDataFrame({
-            "tree_id": tree_ids,
-            "geometry": polygons,
-            "area_m2": [s[0] for s in stats],
-            "max_h": [s[1] for s in stats],
-            "mean_h": [s[2] for s in stats]
-        }, crs=self.chm_profile["crs"])
+        tree_ids = [
+            self.marker_id_to_original_id.get(lbl, lbl) for lbl in labels
+        ]
+        gdf = gpd.GeoDataFrame(
+            {
+                "tree_id": tree_ids,
+                "geometry": polygons,
+                "area_m2": [s[0] for s in stats],
+                "max_h": [s[1] for s in stats],
+                "mean_h": [s[2] for s in stats],
+            },
+            crs=self.chm_profile["crs"],
+        )
         out_path = os.path.join(output_dir, f"{prefix}_Canopies.shp")
         self._remove_shapefile_if_exists(out_path)
         gdf.to_file(out_path)
         print(f"Saved canopy polygons: {out_path} ({len(gdf)} features)")
+
 
 def prefix_from_chm(chm_path):
     """
@@ -521,6 +655,7 @@ def prefix_from_chm(chm_path):
     else:
         return os.path.splitext(name)[0]
 
+
 def run_segmentation():
     """
     Command-line entry point for proximity-based canopy segmentation.
@@ -534,24 +669,73 @@ def run_segmentation():
     Command-line Args:
         --chm (str): Path to CHM TIFF
         --tree-markers (str): Point shapefile of tree markers
-        --min-height (float): Minimum CHM height for segmentation mask (default: 1.75)
-        --buffer-size (float): Buffer size in meters for tree marker refinement (default: 1.0)
+        --min-height (float): Minimum CHM height for segmentation mask
+            (default: 1.0)
+        --buffer-size (float): Buffer size in meters for tree marker
+            refinement (default: 0.5)
         --extent (str, optional): Polygon shapefile defining processing extent
         --outdir (str): Output directory
 
     Returns:
         int: 0 if successful, 1 if error
     """
-    parser = argparse.ArgumentParser(description="Proximity-based canopy segmentation")
+    parser = argparse.ArgumentParser(
+        description="Proximity-based canopy segmentation"
+    )
     parser.add_argument("--chm", required=True, help="Path to CHM TIFF")
-    parser.add_argument("--tree-markers", "-t", required=True, help="Point shapefile of tree markers")
-    parser.add_argument("--min-height", type=float, default=1.0, help="Minimum CHM height (meters) for segmentation mask (default: 1.0)")
-    parser.add_argument("--buffer-size", type=float, default=0.5, help="Buffer size in meters for tree marker refinement (default: 0.5)")
-    parser.add_argument("--min-area", type=float, default=5.0, help="Minimum canopy area in m^2; smaller segments are removed (default: 5.0)")
-    parser.add_argument("--min-hole-area", type=float, default=1.25, help="Holes within a segment smaller than this (m^2) are filled; independent of --min-area (default: 1.25)")
-    parser.add_argument("--extent", "-e", required=False, help="Polygon shapefile defining processing extent (optional)")
+    parser.add_argument(
+        "--tree-markers",
+        "-t",
+        required=True,
+        help="Point shapefile of tree markers",
+    )
+    parser.add_argument(
+        "--min-height",
+        type=float,
+        default=1.0,
+        help=(
+            "Minimum CHM height (meters) for segmentation mask (default: 1.0)"
+        ),
+    )
+    parser.add_argument(
+        "--buffer-size",
+        type=float,
+        default=0.5,
+        help="Buffer size in meters for tree marker refinement (default: 0.5)",
+    )
+    parser.add_argument(
+        "--min-area",
+        type=float,
+        default=5.0,
+        help=(
+            "Minimum canopy area in m^2; smaller segments are "
+            "removed (default: 5.0)"
+        ),
+    )
+    parser.add_argument(
+        "--min-hole-area",
+        type=float,
+        default=1.25,
+        help=(
+            "Holes within a segment smaller than this (m^2) are "
+            "filled; independent of --min-area (default: 1.25)"
+        ),
+    )
+    parser.add_argument(
+        "--extent",
+        "-e",
+        required=False,
+        help="Polygon shapefile defining processing extent (optional)",
+    )
     parser.add_argument("--outdir", required=True, help="Output directory")
-    parser.add_argument("--id-column", type=str, default=None, help="Column name for original tree IDs in marker shapefile (optional)")
+    parser.add_argument(
+        "--id-column",
+        type=str,
+        default=None,
+        help=(
+            "Column name for original tree IDs in marker shapefile (optional)"
+        ),
+    )
     args = parser.parse_args()
 
     if not os.path.exists(args.chm):
@@ -567,7 +751,12 @@ def run_segmentation():
     prefix = prefix_from_chm(args.chm)
     outdir = args.outdir
 
-    seg = TreeCanopySegmentation(args.chm, min_height=args.min_height, min_area_m2=args.min_area, min_hole_area_m2=args.min_hole_area)
+    seg = TreeCanopySegmentation(
+        args.chm,
+        min_height=args.min_height,
+        min_area_m2=args.min_area,
+        min_hole_area_m2=args.min_hole_area,
+    )
 
     if not seg.load_chm(extent_shapefile=args.extent):
         return 1
@@ -575,7 +764,7 @@ def run_segmentation():
     coords = seg.load_tree_markers_from_shapefile(
         args.tree_markers,
         buffer_meters=args.buffer_size,
-        id_column=args.id_column
+        id_column=args.id_column,
     )
 
     if coords is None:
@@ -589,9 +778,11 @@ def run_segmentation():
     seg.save_refined_tree_tops(outdir, prefix)
     return 0
 
+
 if __name__ == "__main__":
     """
     Main entry point for running the segmentation from the command line.
     """
     import sys
+
     sys.exit(run_segmentation())

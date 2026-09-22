@@ -1,12 +1,14 @@
-import Metashape # type: ignore
+"""Automated Metashape reconstruction pipeline for drone imagery."""
+
+import Metashape  # type: ignore
 import os
 import gc
 import sys
-import time
 import yaml
 import argparse
 
 from flight_reconstruction import utils
+
 
 def load_config(config_path):
     """
@@ -22,13 +24,14 @@ def load_config(config_path):
         SystemExit: If loading fails.
     """
     try:
-        with open(config_path, 'r') as file:
+        with open(config_path, "r") as file:
             config = yaml.safe_load(file)
         print(f"Configuration loaded from {config_path}")
         return config
     except Exception as e:
         print(f"Error loading configuration from {config_path}: {e}")
         sys.exit(1)
+
 
 def parse_arguments():
     """
@@ -37,37 +40,51 @@ def parse_arguments():
     Returns:
         argparse.Namespace: Parsed arguments.
     """
-    parser = argparse.ArgumentParser(description='Metashape automated reconstruction')
-    parser.add_argument('--config', type=str, default='config.yml',
-                        help='Path to configuration file')
-    parser.add_argument('--folder', type=str,
-                        help='Folder to process')
+    parser = argparse.ArgumentParser(
+        description="Metashape automated reconstruction"
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="config.yml",
+        help="Path to configuration file",
+    )
+    parser.add_argument("--folder", type=str, help="Folder to process")
     args = parser.parse_args()
     return args
 
+
 def configure_processors():
     """
-    Configure Metashape to use only high VRAM GPUs (>= 8 GB VRAM) and disable CPU for GPU steps.
+    Configure Metashape's GPU and CPU usage for processing.
+
+    Enables only high VRAM GPUs (>= 8 GB VRAM) and disables CPU
+    computation for GPU-accelerated steps.
 
     Returns:
         None
     """
     devices = Metashape.app.enumGPUDevices()
     if len(devices) > 0:
-        gpu_names = [device.get('name', f'GPU {i}') for i, device in enumerate(devices)]
-        gpu_vrams = [device.get('mem_size', 0) for device in devices]  # VRAM in bytes
+        gpu_names = [
+            device.get("name", f"GPU {i}") for i, device in enumerate(devices)
+        ]
+        gpu_vrams = [
+            device.get("mem_size", 0) for device in devices
+        ]  # VRAM in bytes
 
         print("Available GPUs:")
         for i, (name, vram) in enumerate(zip(gpu_names, gpu_vrams)):
             if vram:
-                print(f"  [{i}] {name} ({vram / (1024 ** 3):.1f} GB VRAM)")
+                print(f"  [{i}] {name} ({vram / (1024**3):.1f} GB VRAM)")
             else:
                 print(f"  [{i}] {name} (VRAM unknown)")
 
         # Select only GPUs with >= 8 GB VRAM
         selected_indices = [
-            i for i, vram in enumerate(gpu_vrams)
-            if vram and vram >= 8 * (1024 ** 3)
+            i
+            for i, vram in enumerate(gpu_vrams)
+            if vram and vram >= 8 * (1024**3)
         ]
         if not selected_indices:
             print("No high VRAM GPUs found. Using all available GPUs.")
@@ -76,11 +93,15 @@ def configure_processors():
         # Set GPU mask
         gpu_mask = sum(1 << i for i in selected_indices)
         Metashape.app.gpu_mask = gpu_mask
-        print(f"Enabled GPU(s): {', '.join(gpu_names[i] for i in selected_indices)} (mask={gpu_mask})")
+        print(
+            f"Enabled GPU(s): "
+            f"{', '.join(gpu_names[i] for i in selected_indices)} "
+            f"(mask={gpu_mask})"
+        )
 
         print("Setting GPU backend...")
-        Metashape.app.settings.setValue("main/gpu_enable_opencl", "1") # true
-        Metashape.app.settings.setValue("main/gpu_enable_cuda", "0") # false
+        Metashape.app.settings.setValue("main/gpu_enable_opencl", "1")  # true
+        Metashape.app.settings.setValue("main/gpu_enable_cuda", "0")  # false
 
         # Always disable CPU for GPU steps - avoids memory fragmentation
         Metashape.app.cpu_enable = False
@@ -90,6 +111,7 @@ def configure_processors():
         # No GPU available, use CPU
         Metashape.app.cpu_enable = True
         print("No GPUs detected, using CPU processing")
+
 
 def check_processing_status(chunk):
     """
@@ -103,20 +125,28 @@ def check_processing_status(chunk):
     """
     elevations = getattr(chunk, "elevations", [])
     status = {
-        'photos_loaded': len(chunk.cameras) > 0,
-        'tie_points_exist': len(chunk.tie_points.points) > 0 if chunk.tie_points else False,
-        'boundary_built': utils.has_boundary_shape(chunk),
-        'depth_maps_built': bool(chunk.depth_maps),
-        'point_cloud_built': bool(chunk.point_cloud),
-        'confidence_filtered': utils.point_cloud_confidence_filtered(chunk),
-        'ground_points_classified': chunk.point_cloud.point_count_by_class.get(2, 0) > 0 if chunk.point_cloud else False,
-        'model_built': bool(chunk.model),
-        'dsm_built': any(getattr(e, "label", "") == "DSM" for e in elevations),
-        'dtm_built': any(getattr(e, "label", "") == "DTM" for e in elevations),
-        'chm_built': any(getattr(e, "label", "") == "CHM" for e in elevations),
-        'orthomosaic_built': bool(chunk.orthomosaic)
+        "photos_loaded": len(chunk.cameras) > 0,
+        "tie_points_exist": len(chunk.tie_points.points) > 0
+        if chunk.tie_points
+        else False,
+        "boundary_built": utils.has_boundary_shape(chunk),
+        "depth_maps_built": bool(chunk.depth_maps),
+        "point_cloud_built": bool(chunk.point_cloud),
+        "confidence_filtered": utils.point_cloud_confidence_filtered(chunk),
+        "ground_points_classified": chunk.point_cloud.point_count_by_class.get(
+            2, 0
+        )
+        > 0
+        if chunk.point_cloud
+        else False,
+        "model_built": bool(chunk.model),
+        "dsm_built": any(getattr(e, "label", "") == "DSM" for e in elevations),
+        "dtm_built": any(getattr(e, "label", "") == "DTM" for e in elevations),
+        "chm_built": any(getattr(e, "label", "") == "CHM" for e in elevations),
+        "orthomosaic_built": bool(chunk.orthomosaic),
     }
     return status
+
 
 def run_reconstruction():
     """
@@ -156,14 +186,18 @@ def run_reconstruction():
         config = utils.resolve_sensor_profile(config, photos)
 
         # Open or create project and chunk
-        project_path = os.path.join(output_folder, f"project_{lowest_folder_name}.psx")
+        project_path = os.path.join(
+            output_folder, f"project_{lowest_folder_name}.psx"
+        )
         doc = Metashape.Document()
         if os.path.exists(project_path):
             print(f"Opening existing project: {project_path}")
             doc.open(project_path, read_only=False, ignore_lock=True)
             if len(doc.chunks) > 0:
                 chunk = doc.chunks[0]
-                print(f"Using existing chunk with {len(chunk.cameras)} cameras.")
+                print(
+                    f"Using existing chunk with {len(chunk.cameras)} cameras."
+                )
             else:
                 chunk = doc.addChunk()
                 print("Created new chunk in existing project.")
@@ -181,12 +215,17 @@ def run_reconstruction():
         configure_processors()
 
         # Add photos if not loaded
-        if not status['photos_loaded']:
+        if not status["photos_loaded"]:
             print("Adding photos...")
-            chunk.addPhotos(filenames=photos, load_xmp_accuracy=True, progress=utils.progress_timer.update)
+            chunk.addPhotos(
+                filenames=photos,
+                load_xmp_accuracy=True,
+                progress=utils.progress_timer.update,
+            )
             utils.progress_timer.reset()
             print(f"Added {len(chunk.cameras)} photos.")
-            # Set camera labels to include lowest folder name for downstream tools
+            # Set camera labels to include lowest folder name for
+            # downstream tools
             for camera in chunk.cameras:
                 path = camera.photo.path
                 parent_dir = os.path.basename(os.path.dirname(path))
@@ -204,14 +243,22 @@ def run_reconstruction():
             utils.progress_timer.reset()
             low_quality_cameras = []
             for camera in chunk.cameras:
-                if "Image/Quality" in camera.meta and camera.meta["Image/Quality"]:
+                if (
+                    "Image/Quality" in camera.meta
+                    and camera.meta["Image/Quality"]
+                ):
                     quality = float(camera.meta["Image/Quality"])
-                    if quality < config['image_quality']['quality_threshold']:
+                    if quality < config["image_quality"]["quality_threshold"]:
                         low_quality_cameras.append(camera)
             # Disable low quality cameras
             if low_quality_cameras:
-                quality_threshold = config['image_quality']['quality_threshold']
-                print(f"Disabling {len(low_quality_cameras)} low quality cameras below {quality_threshold}:")
+                quality_threshold = config["image_quality"][
+                    "quality_threshold"
+                ]
+                print(
+                    f"Disabling {len(low_quality_cameras)} low quality "
+                    f"cameras below {quality_threshold}:"
+                )
                 for camera in low_quality_cameras:
                     quality = float(camera.meta["Image/Quality"])
                     print(f"  {camera.label} (quality: {quality:.3f})")
@@ -223,36 +270,46 @@ def run_reconstruction():
             print("Photos already loaded, skipping...")
 
         # Photo matching and alignment
-        if not status['tie_points_exist']:
+        if not status["tie_points_exist"]:
             try:
                 print("Matching photos...")
-                match_params = config['photo_matching']
-                chunk.matchPhotos(downscale=match_params['downscale'],
-                                keypoint_limit=match_params['keypoint_limit'],
-                                keypoint_limit_per_mpx=match_params['keypoint_limit_per_mpx'],
-                                tiepoint_limit=match_params['tiepoint_limit'],
-                                generic_preselection=match_params['generic_preselection'],
-                                reference_preselection=match_params['reference_preselection'],
-                                filter_mask=match_params['filter_mask'],
-                                mask_tiepoints=match_params['mask_tiepoints'],
-                                filter_stationary_points=match_params['filter_stationary_points'],
-                                keep_keypoints=match_params['keep_keypoints'],
-                                guided_matching=match_params['guided_matching'],
-                                subdivide_task=match_params['subdivide_task'],
-                                progress=utils.progress_timer.update)
+                match_params = config["photo_matching"]
+                chunk.matchPhotos(
+                    downscale=match_params["downscale"],
+                    keypoint_limit=match_params["keypoint_limit"],
+                    keypoint_limit_per_mpx=match_params[
+                        "keypoint_limit_per_mpx"
+                    ],
+                    tiepoint_limit=match_params["tiepoint_limit"],
+                    generic_preselection=match_params["generic_preselection"],
+                    reference_preselection=match_params[
+                        "reference_preselection"
+                    ],
+                    filter_mask=match_params["filter_mask"],
+                    mask_tiepoints=match_params["mask_tiepoints"],
+                    filter_stationary_points=match_params[
+                        "filter_stationary_points"
+                    ],
+                    keep_keypoints=match_params["keep_keypoints"],
+                    guided_matching=match_params["guided_matching"],
+                    subdivide_task=match_params["subdivide_task"],
+                    progress=utils.progress_timer.update,
+                )
                 utils.progress_timer.reset()
                 print("Photo matching finished.")
 
                 print("Aligning cameras...")
-                align_cfg = config['camera']['align']
+                align_cfg = config["camera"]["align"]
                 chunk.alignCameras(
-                    adaptive_fitting=align_cfg['adaptive_fitting'],
-                    min_image=align_cfg['min_image'],
-                    progress=utils.progress_timer.update
+                    adaptive_fitting=align_cfg["adaptive_fitting"],
+                    min_image=align_cfg["min_image"],
+                    progress=utils.progress_timer.update,
                 )
                 utils.progress_timer.reset()
-                if align_cfg.get('retry_unaligned', False):
-                    utils.retry_unaligned_cameras(chunk, align_cfg, progress=utils.progress_timer.update)
+                if align_cfg.get("retry_unaligned", False):
+                    utils.retry_unaligned_cameras(
+                        chunk, align_cfg, progress=utils.progress_timer.update
+                    )
                     utils.progress_timer.reset()
                 print("Camera alignment finished.")
 
@@ -261,7 +318,11 @@ def run_reconstruction():
 
                 # Camera optimization
                 print("Optimizing cameras...")
-                utils.optimize_camera_rtk(chunk, config['camera']['optimize'], progress=utils.progress_timer.update)
+                utils.optimize_camera_rtk(
+                    chunk,
+                    config["camera"]["optimize"],
+                    progress=utils.progress_timer.update,
+                )
                 utils.progress_timer.reset()
                 print("Camera optimization finished.")
                 doc.save()
@@ -278,8 +339,13 @@ def run_reconstruction():
                 doc.save()
 
                 # Export camera positions
-                camera_file = os.path.join(output_folder, f"{lowest_folder_name}_camera_positions.txt")
-                chunk.exportCameras(camera_file, format=Metashape.CamerasFormat.CamerasFormatOPK)
+                camera_file = os.path.join(
+                    output_folder, f"{lowest_folder_name}_camera_positions.txt"
+                )
+                chunk.exportCameras(
+                    camera_file,
+                    format=Metashape.CamerasFormat.CamerasFormatOPK,
+                )
                 print(f"Camera positions exported to {camera_file}")
 
                 doc.save()
@@ -288,37 +354,47 @@ def run_reconstruction():
                 print(f"Error during photo matching/alignment: {e}")
                 sys.exit(1)
         else:
-            print("Tie points already exist, skipping matching and alignment...")
+            print(
+                "Tie points already exist, skipping matching and alignment..."
+            )
 
         # Check if transform is valid before geometry-dependent steps
         if not utils.has_valid_transform(chunk):
-            print("No valid transform found. Cannot proceed with point cloud, model, or DEM generation.")
+            print(
+                "No valid transform found. Cannot proceed with point "
+                "cloud, model, or DEM generation."
+            )
             sys.exit(1)
 
         # Store UTM zone for later
         epsg_code = utils.get_utm_zone_from_gps(photos)
 
         # Outer boundary shape for clipping exports
-        boundary_cfg = config.get('boundary', {}) or {}
-        if boundary_cfg.get('enabled', False) and not status['boundary_built']:
+        boundary_cfg = config.get("boundary", {}) or {}
+        if boundary_cfg.get("enabled", False) and not status["boundary_built"]:
             try:
-                utils.build_boundary_shape(chunk, epsg_code, boundary_cfg.get('buffer_m', 12.0))
+                utils.build_boundary_shape(
+                    chunk, epsg_code, boundary_cfg.get("buffer_m", 12.0)
+                )
                 doc.save()
             except Exception as e:
                 print(f"Error building boundary shape: {e}")
                 sys.exit(1)
-        use_boundary = boundary_cfg.get('enabled', False) and utils.has_boundary_shape(chunk)
+        use_boundary = boundary_cfg.get(
+            "enabled", False
+        ) and utils.has_boundary_shape(chunk)
 
         # Depth maps
-        if not status['depth_maps_built']:
+        if not status["depth_maps_built"]:
             try:
                 print("Building depth maps...")
 
-                # Set subdivide_task for depth maps based on estimated RAM usage
-                config = utils.adaptive_subdivide(chunk, 'depth_maps', config)
+                # Set subdivide_task for depth maps based on estimated
+                # RAM usage
+                config = utils.adaptive_subdivide(chunk, "depth_maps", config)
 
                 # Convert filter_mode from string to Metashape enum
-                filter_mode_str = config['depth_maps']['filter_mode'].lower()
+                filter_mode_str = config["depth_maps"]["filter_mode"].lower()
                 if filter_mode_str == "mild":
                     filter_mode = Metashape.FilterMode.MildFiltering
                 elif filter_mode_str == "moderate":
@@ -329,13 +405,15 @@ def run_reconstruction():
                     filter_mode = Metashape.FilterMode.NoFiltering
 
                 chunk.buildDepthMaps(
-                    downscale=config['depth_maps']['downscale'],
+                    downscale=config["depth_maps"]["downscale"],
                     filter_mode=filter_mode,
-                    reuse_depth=config['depth_maps']['reuse_depth'],
-                    max_neighbors=config['depth_maps']['max_neighbors'],
-                    subdivide_task=config['depth_maps']['subdivide_task'],
-                    max_gpu_multiplier=config['depth_maps']['max_gpu_multiplier'],
-                    progress=utils.progress_timer.update
+                    reuse_depth=config["depth_maps"]["reuse_depth"],
+                    max_neighbors=config["depth_maps"]["max_neighbors"],
+                    subdivide_task=config["depth_maps"]["subdivide_task"],
+                    max_gpu_multiplier=config["depth_maps"][
+                        "max_gpu_multiplier"
+                    ],
+                    progress=utils.progress_timer.update,
                 )
                 utils.progress_timer.reset()
                 print("Depth maps finished building.")
@@ -347,9 +425,9 @@ def run_reconstruction():
             print("Depth maps already built, skipping...")
 
         # Point cloud
-        if not status['point_cloud_built']:
+        if not status["point_cloud_built"]:
             try:
-                source_data_str = config['point_cloud']['source_data'].lower()
+                source_data_str = config["point_cloud"]["source_data"].lower()
                 if source_data_str == "depth_maps":
                     source_data = Metashape.DataSource.DepthMapsData
                 else:
@@ -357,12 +435,12 @@ def run_reconstruction():
                 print("Building dense cloud...")
                 chunk.buildPointCloud(
                     source_data=source_data,
-                    point_colors=config['point_cloud']['point_colors'],
-                    point_confidence=config['point_cloud']['point_confidence'],
-                    keep_depth=config['point_cloud']['keep_depth'],
-                    max_neighbors=config['point_cloud']['max_neighbors'],
-                    subdivide_task=config['point_cloud']['subdivide_task'],
-                    progress=utils.progress_timer.update
+                    point_colors=config["point_cloud"]["point_colors"],
+                    point_confidence=config["point_cloud"]["point_confidence"],
+                    keep_depth=config["point_cloud"]["keep_depth"],
+                    max_neighbors=config["point_cloud"]["max_neighbors"],
+                    subdivide_task=config["point_cloud"]["subdivide_task"],
+                    progress=utils.progress_timer.update,
                 )
                 utils.progress_timer.reset()
                 doc.save()
@@ -374,13 +452,22 @@ def run_reconstruction():
             print("Point cloud already built, skipping...")
 
         # Confidence filter
-        conf_cfg = config['point_cloud'].get('confidence_filter', {}) or {}
-        if conf_cfg.get('enabled', False) and config['point_cloud']['point_confidence']:
-            if not status['confidence_filtered'] and not status['ground_points_classified']:
+        conf_cfg = config["point_cloud"].get("confidence_filter", {}) or {}
+        if (
+            conf_cfg.get("enabled", False)
+            and config["point_cloud"]["point_confidence"]
+        ):
+            if (
+                not status["confidence_filtered"]
+                and not status["ground_points_classified"]
+            ):
                 try:
                     print("Filtering point cloud by confidence...")
-                    utils.filter_point_cloud_confidence(chunk, conf_cfg.get('min_confidence', 2),
-                                                        progress=utils.progress_timer.update)
+                    utils.filter_point_cloud_confidence(
+                        chunk,
+                        conf_cfg.get("min_confidence", 2),
+                        progress=utils.progress_timer.update,
+                    )
                     utils.progress_timer.reset()
                     doc.save()
                 except Exception as e:
@@ -389,40 +476,59 @@ def run_reconstruction():
             else:
                 print("Point cloud already confidence-filtered, skipping...")
 
-        if not status['ground_points_classified']:
+        if not status["ground_points_classified"]:
             try:
                 print("Classifying ground points...")
-                ground_config = config['classify_ground_points']
+                ground_config = config["classify_ground_points"]
                 chunk.point_cloud.classifyGroundPoints(
-                    max_angle=ground_config['max_angle'],
-                    max_distance=ground_config['max_distance'],
-                    cell_size=ground_config['cell_size'],
-                    progress=utils.progress_timer.update
+                    max_angle=ground_config["max_angle"],
+                    max_distance=ground_config["max_distance"],
+                    cell_size=ground_config["cell_size"],
+                    progress=utils.progress_timer.update,
                 )
                 utils.progress_timer.reset()
                 doc.save()
                 print("Ground points classified.")
-                pc_file = os.path.join(output_folder, f"{lowest_folder_name}_point_cloud.{config['point_cloud']['export']['format']}")
-                format_str = config['point_cloud']['export']['format'].lower()
+                pc_file = os.path.join(
+                    output_folder,
+                    f"{lowest_folder_name}_point_cloud.{config['point_cloud']['export']['format']}",
+                )
+                format_str = config["point_cloud"]["export"]["format"].lower()
                 if format_str == "las":
-                    export_format = Metashape.PointCloudFormat.PointCloudFormatLAS
+                    export_format = (
+                        Metashape.PointCloudFormat.PointCloudFormatLAS
+                    )
                 elif format_str == "laz":
-                    export_format = Metashape.PointCloudFormat.PointCloudFormatLAZ
+                    export_format = (
+                        Metashape.PointCloudFormat.PointCloudFormatLAZ
+                    )
                 elif format_str == "e57":
-                    export_format = Metashape.PointCloudFormat.PointCloudFormatE57
+                    export_format = (
+                        Metashape.PointCloudFormat.PointCloudFormatE57
+                    )
                 elif format_str == "ply":
-                    export_format = Metashape.PointCloudFormat.PointCloudFormatPLY
+                    export_format = (
+                        Metashape.PointCloudFormat.PointCloudFormatPLY
+                    )
                 else:
-                    export_format = Metashape.PointCloudFormat.PointCloudFormatXYZ
+                    export_format = (
+                        Metashape.PointCloudFormat.PointCloudFormatXYZ
+                    )
                 chunk.exportPointCloud(
                     pc_file,
                     source_data=Metashape.DataSource.PointCloudData,
-                    save_point_color=config['point_cloud']['export']['save_point_color'],
-                    save_point_normal=config['point_cloud']['export']['save_point_normal'],
-                    save_point_confidence=config['point_cloud']['export']['save_point_confidence'],
+                    save_point_color=config["point_cloud"]["export"][
+                        "save_point_color"
+                    ],
+                    save_point_normal=config["point_cloud"]["export"][
+                        "save_point_normal"
+                    ],
+                    save_point_confidence=config["point_cloud"]["export"][
+                        "save_point_confidence"
+                    ],
                     format=export_format,
                     crs=Metashape.CoordinateSystem(epsg_code),
-                    progress=utils.progress_timer.update
+                    progress=utils.progress_timer.update,
                 )
                 utils.progress_timer.reset()
                 print("Point cloud exported.")
@@ -433,19 +539,23 @@ def run_reconstruction():
             print("Ground points already classified, skipping...")
 
         # Mesh (3d model)
-        if not status['model_built']:
+        if not status["model_built"]:
             try:
                 print("Building 3D model...")
                 chunk.buildModel(
-                    surface_type=utils.surface_type_from_str(config['model'].get('surface_type', 'arbitrary')),
-                    interpolation=utils.interpolation_from_str(config['model'].get('interpolation', 'enabled')),
+                    surface_type=utils.surface_type_from_str(
+                        config["model"].get("surface_type", "arbitrary")
+                    ),
+                    interpolation=utils.interpolation_from_str(
+                        config["model"].get("interpolation", "enabled")
+                    ),
                     face_count=Metashape.FaceCount.HighFaceCount,
                     source_data=Metashape.DataSource.DepthMapsData,
-                    vertex_colors=config['model']['vertex_colors'],
-                    vertex_confidence=config['model']['vertex_confidence'],
-                    keep_depth=config['model']['keep_depth'],
-                    subdivide_task=config['model']['subdivide_task'],
-                    progress=utils.progress_timer.update
+                    vertex_colors=config["model"]["vertex_colors"],
+                    vertex_confidence=config["model"]["vertex_confidence"],
+                    keep_depth=config["model"]["keep_depth"],
+                    subdivide_task=config["model"]["subdivide_task"],
+                    progress=utils.progress_timer.update,
                 )
                 utils.progress_timer.reset()
                 doc.save()
@@ -458,9 +568,9 @@ def run_reconstruction():
 
         # Set up compression for elevation surfaces and orthomosaic
         compression = Metashape.ImageCompression()
-        compression.tiff_big = config['dem']['tiff_big']
-        compression.tiff_tiled = config['dem']['tiff_tiled']
-        compression.tiff_overviews = config['dem']['tiff_overviews']
+        compression.tiff_big = config["dem"]["tiff_big"]
+        compression.tiff_tiled = config["dem"]["tiff_tiled"]
+        compression.tiff_overviews = config["dem"]["tiff_overviews"]
 
         # Set up projection for elevation surfaces and orthomosaic
         utm_projection = Metashape.OrthoProjection()
@@ -471,17 +581,19 @@ def run_reconstruction():
         chm_file = os.path.join(output_folder, f"{lowest_folder_name}_chm.tif")
 
         # DSM
-        if not status['dsm_built']:
+        if not status["dsm_built"]:
             try:
-                dem_source_str = str(config['dem'].get('source', 'model')).lower()
+                dem_source_str = str(
+                    config["dem"].get("source", "model")
+                ).lower()
                 print(f"Building DSM from {dem_source_str}...")
                 chunk.buildDem(
                     source_data=utils.dem_source_from_str(dem_source_str),
                     interpolation=Metashape.Interpolation.EnabledInterpolation,
                     projection=utm_projection,
-                    subdivide_task=config['dem']['subdivide_task'],
-                    resolution=config['dem']['resolution'],
-                    progress=utils.progress_timer.update
+                    subdivide_task=config["dem"]["subdivide_task"],
+                    resolution=config["dem"]["resolution"],
+                    progress=utils.progress_timer.update,
                 )
                 utils.progress_timer.reset()
                 chunk.elevation.label = "DSM"
@@ -490,10 +602,10 @@ def run_reconstruction():
                 chunk.exportRaster(
                     path=dsm_file,
                     projection=utm_projection,
-                    nodata_value=config['dem']['nodata'],
+                    nodata_value=config["dem"]["nodata"],
                     source_data=Metashape.DataSource.ElevationData,
                     image_compression=compression,
-                    progress=utils.progress_timer.update
+                    progress=utils.progress_timer.update,
                 )
                 utils.progress_timer.reset()
                 print("DSM exported.")
@@ -514,7 +626,7 @@ def run_reconstruction():
         dem_resolution = dsm_asset.resolution
 
         # DTM
-        if not status['dtm_built']:
+        if not status["dtm_built"]:
             try:
                 print("Building DTM from ground points in point cloud...")
                 chunk.buildDem(
@@ -522,9 +634,9 @@ def run_reconstruction():
                     classes=[Metashape.PointClass.Ground],
                     projection=utm_projection,
                     region=dem_bbox,
-                    subdivide_task=config['dem']['subdivide_task'],
+                    subdivide_task=config["dem"]["subdivide_task"],
                     resolution=dem_resolution,
-                    progress=utils.progress_timer.update
+                    progress=utils.progress_timer.update,
                 )
                 utils.progress_timer.reset()
                 chunk.elevation.label = "DTM"
@@ -533,10 +645,10 @@ def run_reconstruction():
                 chunk.exportRaster(
                     path=dtm_file,
                     projection=utm_projection,
-                    nodata_value=config['dem']['nodata'],
+                    nodata_value=config["dem"]["nodata"],
                     source_data=Metashape.DataSource.ElevationData,
                     image_compression=compression,
-                    progress=utils.progress_timer.update
+                    progress=utils.progress_timer.update,
                 )
                 utils.progress_timer.reset()
                 print("DTM exported.")
@@ -547,7 +659,7 @@ def run_reconstruction():
             print("DTM already built, skipping...")
 
         # CHM
-        if not status['chm_built']:
+        if not status["chm_built"]:
             try:
                 print("Creating Canopy Height Model (CHM)...")
                 dtm_asset = utils.get_elevation_by_label(chunk, "DTM")
@@ -556,30 +668,48 @@ def run_reconstruction():
                         asset=dsm_asset.key,
                         operand_asset=dtm_asset.key,
                         subtract=True,
-                        nodata_value=config['dem']['nodata'],
+                        nodata_value=config["dem"]["nodata"],
                         projection=utm_projection,
                         region=dem_bbox,
                         resolution=dem_resolution,
                         replace_asset=False,
-                        clip_to_boundary=use_boundary
+                        clip_to_boundary=use_boundary,
                     )
                     chunk.elevation.label = "CHM"
                     doc.save()
                     chunk.exportRaster(
                         path=chm_file,
                         projection=utm_projection,
-                        nodata_value=config['dem']['nodata'],
+                        nodata_value=config["dem"]["nodata"],
                         source_data=Metashape.DataSource.ElevationData,
                         image_compression=compression,
-                        progress=utils.progress_timer.update
+                        progress=utils.progress_timer.update,
                     )
                     print("CHM exported.")
-                    # Metashape's CHM can be one pixel narrower than the DSM; recompute on the DSM grid if so
-                    if utils.rasters_share_grid([dsm_file, dtm_file, chm_file]) is False:
-                        chm_ms_file = os.path.join(output_folder, f"{lowest_folder_name}_chm_metashape.tif")
+                    # Metashape's CHM can be one pixel narrower than
+                    # the DSM; recompute on the DSM grid if so
+                    if (
+                        utils.rasters_share_grid(
+                            [dsm_file, dtm_file, chm_file]
+                        )
+                        is False
+                    ):
+                        chm_ms_file = os.path.join(
+                            output_folder,
+                            f"{lowest_folder_name}_chm_metashape.tif",
+                        )
                         os.replace(chm_file, chm_ms_file)
-                        utils.compute_chm_with_gdal(dsm_file, dtm_file, chm_file, nodata=float(config['dem']['nodata']))
-                        print(f"CHM recomputed on the DSM grid; Metashape CHM kept as {os.path.basename(chm_ms_file)}.")
+                        utils.compute_chm_with_gdal(
+                            dsm_file,
+                            dtm_file,
+                            chm_file,
+                            nodata=float(config["dem"]["nodata"]),
+                        )
+                        print(
+                            f"CHM recomputed on the DSM grid; "
+                            f"Metashape CHM kept as "
+                            f"{os.path.basename(chm_ms_file)}."
+                        )
                 else:
                     print("DSM or DTM asset not found, CHM not created.")
             except Exception as e:
@@ -592,15 +722,17 @@ def run_reconstruction():
         chunk.elevation = dsm_asset
 
         # Orthomosaic
-        if not status['orthomosaic_built']:
+        if not status["orthomosaic_built"]:
             try:
-                surface_str = str(config['orthomosaic'].get('surface', 'model')).lower()
-                if surface_str == 'dem':
+                surface_str = str(
+                    config["orthomosaic"].get("surface", "model")
+                ).lower()
+                if surface_str == "dem":
                     surface_data = Metashape.DataSource.ElevationData
                 else:
                     surface_data = Metashape.DataSource.ModelData
                 print(f"Building orthomosaic on {surface_str} surface...")
-                blend_str = config['orthomosaic']['blending_mode'].lower()
+                blend_str = config["orthomosaic"]["blending_mode"].lower()
                 if blend_str == "mosaic":
                     blend_mode = Metashape.BlendingMode.MosaicBlending
                 elif blend_str == "average":
@@ -615,26 +747,30 @@ def run_reconstruction():
                 chunk.buildOrthomosaic(
                     surface_data=surface_data,
                     blending_mode=blend_mode,
-                    ghosting_filter=config['orthomosaic']['ghosting_filter'],
-                    fill_holes=config['orthomosaic']['fill_holes'],
-                    cull_faces=config['orthomosaic']['cull_faces'],
-                    refine_seamlines=config['orthomosaic']['refine_seamlines'],
-                    subdivide_task=config['orthomosaic']['subdivide_task'],
-                    progress=utils.progress_timer.update
+                    ghosting_filter=config["orthomosaic"]["ghosting_filter"],
+                    fill_holes=config["orthomosaic"]["fill_holes"],
+                    cull_faces=config["orthomosaic"]["cull_faces"],
+                    refine_seamlines=config["orthomosaic"]["refine_seamlines"],
+                    subdivide_task=config["orthomosaic"]["subdivide_task"],
+                    progress=utils.progress_timer.update,
                 )
                 utils.progress_timer.reset()
                 doc.save()
                 print("Orthomosaic finished building.")
 
-                ortho_file = os.path.join(output_folder, f"{lowest_folder_name}_orthomosaic.tif")
+                ortho_file = os.path.join(
+                    output_folder, f"{lowest_folder_name}_orthomosaic.tif"
+                )
                 chunk.exportRaster(
                     ortho_file,
                     source_data=Metashape.DataSource.OrthomosaicData,
                     projection=utm_projection,
                     image_compression=compression,
-                    white_background=config['orthomosaic']['export']['white_background'],
-                    nodata_value=config['orthomosaic']['export']['nodata'],
-                    progress=utils.progress_timer.update
+                    white_background=config["orthomosaic"]["export"][
+                        "white_background"
+                    ],
+                    nodata_value=config["orthomosaic"]["export"]["nodata"],
+                    progress=utils.progress_timer.update,
                 )
                 utils.progress_timer.reset()
                 print("Orthomosaic exported.")
@@ -647,11 +783,16 @@ def run_reconstruction():
             print("Orthomosaic already built, skipping...")
 
         try:
-            report_file = os.path.join(output_folder, f"{lowest_folder_name}_report.pdf")
+            report_file = os.path.join(
+                output_folder, f"{lowest_folder_name}_report.pdf"
+            )
             chunk.exportReport(report_file)
             print("Report exported.")
 
-            print(f"Processing finished for {lowest_folder_name}; results saved to {output_folder}.")
+            print(
+                f"Processing finished for {lowest_folder_name}; results "
+                f"saved to {output_folder}."
+            )
 
             doc.save()
             doc = None
@@ -669,11 +810,12 @@ def run_reconstruction():
         print(f"Error processing folder {input_folder}: {e}")
         sys.exit(1)
     finally:
-        if 'doc' in locals() and doc is not None:
+        if "doc" in locals() and doc is not None:
             doc.save()
             doc = None
         gc.collect()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     run_reconstruction()
     gc.collect()
