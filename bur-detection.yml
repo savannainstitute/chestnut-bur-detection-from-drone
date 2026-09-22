@@ -22,6 +22,7 @@ dependencies:
       - pyyaml
       - ray[tune]
       - rasterio
+      - ruff
       - scikit-image
       - scipy
       - shapely
