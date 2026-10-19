@@ -1,0 +1,46 @@
+# Environment for the learning-curve sweep tools (build_tile_store, sweep_one, sweep_pool,
+# cut_infer_tiles, analyze_sweep). READ OUT OF THE PINNED CONTAINER on 2026-10-03, not assembled
+# from memory: every version below was printed by importing the module inside
+# containers/ultralytics_8.4.76.sif, which is the image both VT ARC clusters and UW CHTC run.
+#
+# WHY THIS FILE EXISTS. `Chestnuts/Drone/work/analysis/requirements.txt` does not list
+# albumentations, and sweep_one.py imports it to inject `RandomRotate90` into the training pipeline.
+# An environment built from that file cannot run a cell at all. The dependency belongs to these
+# tools, so it is pinned here rather than by editing another project's file.
+#
+# THE CAMPAIGN ITSELF DOES NOT READ THIS FILE. Cluster runs execute inside the image, which is
+# pinned by tag on the VT side and by digest
+# sha256:33f9a1ab63970bb5d2003deb625f2a2fe080d7861b9e70994070f4c3ddb19007 on the CHTC side. This
+# file is for reproducing the environment on a Mac or anywhere without the container, which is the
+# case where the missing albumentations actually bites.
+#
+# Python in the image is 3.12.3.
+#
+# A CAVEAT THAT MATTERS MORE THAN THE PINS. `albumentations` 2.x gives an `A.Compose` its OWN random
+# generator, seeded from the operating system unless `seed=` is passed, and the injected
+# `RandomRotate90` runs at p=1.0. Seeding python, numpy and torch does not reach it, so two runs of
+# one cell see different pixels from the first batch and a cell is NOT reproducible. Measured on
+# tinkercliffs: 13 of 13 duplicate pairs differ from epoch 1, median absolute difference 0.0280 in
+# best mAP50-95. Pinning the version does not make a run repeatable; only passing `seed=` would, and
+# that is deliberately NOT done mid-campaign. See the project memory note for the reasoning.
+
+ultralytics==8.4.76
+torch==2.11.0
+torchvision==0.26.0
+albumentations==2.0.8
+albucore==0.0.24
+Pillow==12.1.1
+numpy==2.4.3
+opencv-python==4.13.0.92
+scipy==1.18.0
+matplotlib==3.11.0
+psutil==7.2.2
+
+# NOT in the image, and the tools must therefore not import them: pandas and PyYAML. Confirmed by
+# importing both inside the container, where each raises ModuleNotFoundError. Anything added to
+# these tools that needs either one will fail on every cluster cell while working on a laptop.
+
+# On an Apple Silicon Mac, torch and torchvision resolve to the arm64 wheels and there is no CUDA,
+# so `device=0` must become "mps" and the mixed-precision check returns false. A Mac run is
+# therefore not comparable with a cluster run on four counts at once: the GPU backend, no mixed
+# precision, a different torch build, and an ARM CPU doing the augmentation.

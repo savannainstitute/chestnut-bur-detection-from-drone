@@ -1,0 +1,52 @@
+# P1 hover-frame bur detection: the recipe and the scoring as run in the 2026 learning-curve campaign.
+# The scripts in tools/ hold these values as constants and command-line defaults; this file records them in
+# one place. Reading them from here, and folding P1 into bur_detection/config.yml under a sensor key, is left
+# for the publication pass.
+
+sensor: p1                        # DJI Zenmuse P1 at 35 mm, 8192 x 5460 hover frames, about 0.96 mm a pixel
+                                  # at the 7.87 m camera-to-crown standoff of the 2026 Clarks Run missions
+
+model:
+  architecture: yolov8n-p2.yaml   # Ultralytics yolov8n with the stride-4 (P2) head
+  init_weights: yolov8n.pt        # COCO
+
+training:                         # tools/sweep_one.py
+  imgsz: 640
+  epochs: 200
+  patience: 40
+  batch: 16
+  workers: 2
+  deterministic: true
+  seed: per run                   # from design.json; it does not reach the injected rotation below
+  augmentation:
+    random_rotate90: 1.0          # albumentations RandomRotate90 injected into Ultralytics' Compose, unseeded
+    flipud: 0.5
+    fliplr: 0.5
+    degrees: 0.0
+    translate: 0.1
+    scale: 0.5
+    mosaic: 1.0
+    erasing: 0.4
+  validation_tiles_per_source: 250  # drawn once per fold with a fixed seed
+
+tiles:                            # tools/build_tile_store.py
+  tile: 640
+  stride: 320
+  background_ratio: 0.5           # bur-free tiles kept per tile holding a bur
+  frame_scale:                    # enlargement of a frame before it is tiled
+    clarks_run_2026: 1.0
+    ohio_2025_older_trees: 1.5    # the six frames of 2025-09-05; 2.35 in tranche 7
+    ohio_2025_other: 1.0
+
+scoring:                          # score_frames in tools/sweep_one.py, tiles from tools/cut_infer_tiles.py
+  tile: 640
+  overlap: 0.2                    # a 512 px stride, plus a flush row and column at the frame edges
+  conf_floor: 0.15
+  infer_batch: 64
+  nms_iou_within_tile: 0.45
+  nms_iou_across_tiles: 0.3
+  max_box_px: 130                 # boxes longer than this on either side are dropped before counting
+  threshold: own                  # each model's own confidence threshold: the one at which its predicted
+                                  # total equals the annotated total on its 18 validation trees, searched
+                                  # from 0.15 to 0.95 in steps of 0.025 (tools/analyze_sweep.py)
+  truth_classes: [0, 2, 4]        # the in-crown bur classes of the annotation protocol; 3 is a bur on the ground
