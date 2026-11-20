@@ -26,16 +26,20 @@ running it twice is harmless.
         --date YYYY-MM-DD --source "<where the delivery came from>" \
         --out work/<date>_new-test-trees \
         [--drive-md5 <rclone md5sum output, paths relative to the KY-2026 Drive folder>] \
-        [--raw-root ~/Data/chestnut-drone/ClarksRun_Maysville-KY/2026/raw-imagery] [--dry-run]
+        [--raw-root /Volumes/drone/ap-clarks-run/2026/raw-imagery] [--dry-run]
 
 --drive-md5 and --raw-root are checks: every new frame must be on Drive, its raw flight copy must sit
-in the mission folder that frame_missions.csv names, and the two copies must be byte-identical.
+in the mission folder that frame_missions.csv names, and the two copies must be byte-identical. The raw
+root is the NAS layout, one folder per mission and day (2026-09-06_m02_p1-rgb_hover, with M01 in two
+folders), or the older one folder per mission (M02, CRM02, m03); other folders, such as the exposure
+tests beside the hover missions, are not searched.
 """
 import argparse
 import csv
 import hashlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -48,6 +52,14 @@ EXPECTED_MISSION_FOLD = {"M01": 1, "M02": 0, "M03": 2, "M04": 4, "M05": 3, "M06"
 def norm_mission(m):
     m = m.strip().upper()
     return "M" + m[3:] if m.startswith("CRM") else m
+
+
+def raw_folder_mission(name):
+    """The mission of a top-level raw-imagery folder, or None for a folder that is not a hover mission."""
+    hover = re.match(r"^\d{4}-\d{2}-\d{2}_m(\d{2})_p1-rgb_hover$", name)
+    if hover:
+        return "M" + hover.group(1)
+    return norm_mission(name) if re.match(r"^(CR)?M\d{2}$", name.strip().upper()) else None
 
 
 def md5_file(path):
@@ -194,19 +206,26 @@ def main():
             r["jpg_md5_drive"] = drive["%s/%s.JPG" % (r["set"], r["stem"])]
     if a.raw_root:
         from PIL import Image
-        index = {}
-        for dp, _, fns in os.walk(os.path.expanduser(a.raw_root)):
-            for fn in fns:
-                if fn.endswith(".JPG"):
-                    if fn in index:
-                        refuse("raw file name %s occurs under two folders" % fn, [index[fn], dp])
-                    index[fn] = dp
+        raw_root = os.path.expanduser(a.raw_root)
+        index, mission_of = {}, {}
+        for top in sorted(os.listdir(raw_root)):
+            mission = raw_folder_mission(top)
+            if mission is None or not os.path.isdir(os.path.join(raw_root, top)):
+                continue
+            for dp, _, fns in os.walk(os.path.join(raw_root, top)):
+                for fn in fns:
+                    if fn.endswith(".JPG"):
+                        if fn in index:
+                            refuse("raw file name %s occurs under two folders" % fn, [index[fn], dp])
+                        index[fn], mission_of[fn] = dp, mission
+        if not index:
+            refuse("no hover mission folder with frames under %s" % raw_root)
         for r in rows:
             fn = r["stem"].split("__")[1] + ".JPG"
             if fn not in index:
                 refuse("no raw flight copy of %s" % r["stem"])
             path = os.path.join(index[fn], fn)
-            mission_dir = norm_mission(os.path.relpath(index[fn], os.path.expanduser(a.raw_root)).split(os.sep)[0])
+            mission_dir = mission_of[fn]
             if mission_dir != r["mission"]:
                 refuse("%s sits in raw folder %s, not %s" % (r["stem"], mission_dir, r["mission"]))
             r["jpg_md5_raw"] = md5_file(path)
